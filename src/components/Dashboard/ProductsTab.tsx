@@ -38,7 +38,7 @@ const SAMPLE_IMAGE_PRESETS = [
 ];
 
 export const ProductsTab: React.FC<Props> = ({ store, onNavigateToSubscription }) => {
-  const { idToken } = useAuth();
+  const { loading: authLoading, getValidToken, user, firebaseUser } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
   const [features, setFeatures] = useState<Feature[]>([]);
   const [loading, setLoading] = useState(true);
@@ -62,22 +62,30 @@ export const ProductsTab: React.FC<Props> = ({ store, onNavigateToSubscription }
   const [uploadingImage, setUploadingImage] = useState(false);
 
   const fetchProductsAndFeatures = async () => {
+    if (authLoading) return;
     setLoading(true);
     try {
-      const headers = idToken ? { Authorization: `Bearer ${idToken}` } : {};
+      const headers: Record<string, string> = {};
+      const currentUser = firebaseUser || user;
+      if (currentUser) {
+        const token = await getValidToken();
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+      }
 
       // Fetch products
       const prodRes = await fetch(`/api/stores/${store.id}/products`, { headers });
       if (prodRes.ok) {
         const prodData = await prodRes.json();
-        setProducts(prodData);
+        setProducts(Array.isArray(prodData) ? prodData : []);
       }
 
       // Fetch features for this store
       const featRes = await fetch(`/api/stores/${store.id}/features`, { headers });
       if (featRes.ok) {
         const featData = await featRes.json();
-        setFeatures(featData);
+        setFeatures(Array.isArray(featData) ? featData : []);
       }
     } catch (error) {
       console.error('Error fetching dashboard data:', error);
@@ -87,8 +95,10 @@ export const ProductsTab: React.FC<Props> = ({ store, onNavigateToSubscription }
   };
 
   useEffect(() => {
-    fetchProductsAndFeatures();
-  }, [store.id, idToken]);
+    if (!authLoading) {
+      fetchProductsAndFeatures();
+    }
+  }, [store.id, authLoading]);
 
   const openCreateModal = () => {
     setEditingProduct(null);
@@ -118,10 +128,14 @@ export const ProductsTab: React.FC<Props> = ({ store, onNavigateToSubscription }
 
   const handleToggleActive = async (prod: Product) => {
     try {
-      const headers = {
+      const token = await getValidToken();
+      const headers: Record<string, string> = {
         'Content-Type': 'application/json',
-        ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
       };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       const res = await fetch(`/api/stores/${store.id}/products/${prod.id}/toggle-active`, {
         method: 'PATCH',
         headers,
@@ -138,7 +152,12 @@ export const ProductsTab: React.FC<Props> = ({ store, onNavigateToSubscription }
 
   const handleDelete = async (id: number) => {
     try {
-      const headers = idToken ? { Authorization: `Bearer ${idToken}` } : {};
+      const token = await getValidToken();
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       const res = await fetch(`/api/stores/${store.id}/products/${id}`, {
         method: 'DELETE',
         headers,
@@ -172,15 +191,20 @@ export const ProductsTab: React.FC<Props> = ({ store, onNavigateToSubscription }
 
     setUploadingImage(true);
     try {
+      const token = await getValidToken();
       const reader = new FileReader();
       reader.onload = async () => {
         const base64Data = reader.result as string;
+        const headers: Record<string, string> = {
+          'Content-Type': 'application/json',
+        };
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+
         const res = await fetch('/api/upload', {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
-          },
+          headers,
           body: JSON.stringify({
             imageBase64: base64Data,
             fileData: base64Data,
@@ -256,10 +280,13 @@ export const ProductsTab: React.FC<Props> = ({ store, onNavigateToSubscription }
     };
 
     try {
-      const headers = {
+      const token = await getValidToken();
+      const headers: Record<string, string> = {
         'Content-Type': 'application/json',
-        ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
       };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
 
       if (editingProduct) {
         const res = await fetch(`/api/stores/${store.id}/products/${editingProduct.id}`, {

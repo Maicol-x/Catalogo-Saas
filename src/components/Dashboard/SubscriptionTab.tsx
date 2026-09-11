@@ -26,7 +26,7 @@ interface Props {
 }
 
 export const SubscriptionTab: React.FC<Props> = ({ store, onStoreUpdated }) => {
-  const { idToken, firebaseUser, user } = useAuth();
+  const { firebaseUser, user, loading: authLoading, getValidToken } = useAuth();
   const [loading, setLoading] = useState(true);
   const [subscription, setSubscription] = useState<StoreSubscription | null>(null);
   const [usage, setUsage] = useState<StoreUsageMetrics | null>(null);
@@ -36,28 +36,32 @@ export const SubscriptionTab: React.FC<Props> = ({ store, onStoreUpdated }) => {
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
-  const getAuthToken = async (): Promise<string | null> => {
-    if (idToken) return idToken;
-    const fbUser = firebaseUser || user;
-    if (fbUser) {
-      try {
-        const token = await fbUser.getIdToken();
-        if (token && token !== 'undefined') return token;
-      } catch (err) {
-        console.warn('Error fetching fresh ID token:', err);
-      }
-    }
-    return null;
-  };
-
   const fetchSubscriptionData = async () => {
+    // If Firebase is still resolving the initial user session, wait
+    if (authLoading) {
+      return;
+    }
+
     try {
       setLoading(true);
       setErrorMessage(null);
-      const token = await getAuthToken();
+
+      const currentUser = firebaseUser || user;
+      const isDemoStore = store.userUid === 'demo_merchant_uid_1';
+
+      // If this is a private merchant store and user is not authenticated, show friendly notice
+      if (!isDemoStore && !currentUser) {
+        setLoading(false);
+        setErrorMessage('Debes iniciar sesión con Google para ver y administrar la suscripción de este catálogo.');
+        return;
+      }
+
       const headers: Record<string, string> = {};
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
+      if (currentUser) {
+        const token = await getValidToken();
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
       }
 
       const res = await fetch(`/api/stores/${store.id}/subscription`, {
@@ -65,6 +69,13 @@ export const SubscriptionTab: React.FC<Props> = ({ store, onStoreUpdated }) => {
       });
 
       if (!res.ok) {
+        if (res.status === 401) {
+          throw new Error('Tu sesión ha expirado o no es válida. Inicia sesión nuevamente.');
+        } else if (res.status === 403) {
+          throw new Error('No tienes permisos de administración para este catálogo.');
+        } else if (res.status === 404) {
+          throw new Error('El catálogo especificado no fue encontrado.');
+        }
         const errData = await res.json().catch(() => ({}));
         throw new Error(errData.error || 'Error al cargar información de suscripción');
       }
@@ -73,7 +84,7 @@ export const SubscriptionTab: React.FC<Props> = ({ store, onStoreUpdated }) => {
       setSubscription(data.subscription);
       setUsage(data.usage);
     } catch (err: any) {
-      console.error(err);
+      console.error('[SubscriptionTab] fetchSubscriptionData error:', err);
       setErrorMessage(err.message || 'Error cargando datos de suscripción');
     } finally {
       setLoading(false);
@@ -81,8 +92,10 @@ export const SubscriptionTab: React.FC<Props> = ({ store, onStoreUpdated }) => {
   };
 
   useEffect(() => {
-    fetchSubscriptionData();
-  }, [store.id, idToken]);
+    if (!authLoading) {
+      fetchSubscriptionData();
+    }
+  }, [store.id, authLoading, user?.uid]);
 
   const handleInitiateCheckout = async (planKey: SubscriptionPlan) => {
     try {
@@ -90,12 +103,22 @@ export const SubscriptionTab: React.FC<Props> = ({ store, onStoreUpdated }) => {
       setErrorMessage(null);
       setSuccessMessage(null);
 
-      const token = await getAuthToken();
+      const currentUser = firebaseUser || user;
+      const isDemoStore = store.userUid === 'demo_merchant_uid_1';
+
+      if (!currentUser && !isDemoStore) {
+        throw new Error('Debes iniciar sesión para actualizar tu plan de suscripción.');
+      }
+
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
       };
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
+
+      if (currentUser) {
+        const token = await getValidToken();
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
       }
 
       const res = await fetch(`/api/stores/${store.id}/subscription/checkout`, {
@@ -110,6 +133,11 @@ export const SubscriptionTab: React.FC<Props> = ({ store, onStoreUpdated }) => {
 
       const data = await res.json();
       if (!res.ok) {
+        if (res.status === 401) {
+          throw new Error('Sesión expirada. Inicia sesión con tu cuenta de Google.');
+        } else if (res.status === 403) {
+          throw new Error('No tienes permisos para modificar este catálogo.');
+        }
         throw new Error(data.error || 'Error al iniciar checkout');
       }
 
@@ -132,12 +160,17 @@ export const SubscriptionTab: React.FC<Props> = ({ store, onStoreUpdated }) => {
     try {
       setIsUpgrading(true);
       setErrorMessage(null);
-      const token = await getAuthToken();
+
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
       };
-      if (token) {
-        headers['Authorization'] = `Bearer ${token}`;
+
+      const currentUser = firebaseUser || user;
+      if (currentUser) {
+        const token = await getValidToken();
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
       }
 
       const res = await fetch(`/api/stores/${store.id}/subscription/plan`, {
@@ -148,6 +181,11 @@ export const SubscriptionTab: React.FC<Props> = ({ store, onStoreUpdated }) => {
 
       const data = await res.json();
       if (!res.ok) {
+        if (res.status === 401) {
+          throw new Error('Sesión no autorizada. Por favor inicia sesión.');
+        } else if (res.status === 403) {
+          throw new Error('No tienes permisos para cambiar el plan de esta tienda.');
+        }
         throw new Error(data.error || 'Error actualizando plan');
       }
 
@@ -167,8 +205,10 @@ export const SubscriptionTab: React.FC<Props> = ({ store, onStoreUpdated }) => {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center p-16">
+      <div className="flex flex-col items-center justify-center p-16 rounded-2xl border border-neutral-200 bg-white">
         <RefreshCw className="h-8 w-8 animate-spin text-neutral-400" />
+        <p className="mt-3 text-sm font-semibold text-neutral-700">Cargando información de suscripción...</p>
+        <p className="text-xs text-neutral-400 mt-1">Consultando estado del catálogo y cuotas vigentes</p>
       </div>
     );
   }
@@ -179,7 +219,15 @@ export const SubscriptionTab: React.FC<Props> = ({ store, onStoreUpdated }) => {
       {errorMessage && (
         <div className="rounded-xl border border-red-200 bg-red-50 p-4 flex items-start gap-3">
           <AlertCircle className="h-5 w-5 text-red-600 shrink-0 mt-0.5" />
-          <p className="text-sm text-red-800 font-medium">{errorMessage}</p>
+          <div className="flex-1">
+            <p className="text-sm text-red-800 font-medium">{errorMessage}</p>
+            <button
+              onClick={fetchSubscriptionData}
+              className="mt-2 text-xs font-bold text-red-700 hover:text-red-900 underline cursor-pointer"
+            >
+              Reintentar
+            </button>
+          </div>
         </div>
       )}
 
@@ -200,7 +248,7 @@ export const SubscriptionTab: React.FC<Props> = ({ store, onStoreUpdated }) => {
                 Plan {planInfo.name}
               </span>
               <span className={`inline-flex items-center rounded-full px-2.5 py-0.5 text-xs font-semibold ${
-                subscription?.status === 'active' || subscription?.status === 'lifetime'
+                subscription?.status === 'active'
                   ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
                   : 'bg-neutral-100 text-neutral-700'
               }`}>
@@ -236,13 +284,13 @@ export const SubscriptionTab: React.FC<Props> = ({ store, onStoreUpdated }) => {
                   Productos en Catálogo
                 </span>
                 <span className="font-mono text-neutral-900">
-                  {usage.productCount} / {usage.maxProducts === -1 ? '∞ Ilimitado' : usage.maxProducts}
+                  {usage.currentProductCount} / {usage.maxProducts === -1 ? '∞ Ilimitado' : usage.maxProducts}
                 </span>
               </div>
               <div className="w-full bg-neutral-200 h-2 rounded-full overflow-hidden">
                 <div
                   className={`h-full rounded-full transition-all ${
-                    usage.maxProducts !== -1 && usage.productCount >= usage.maxProducts
+                    usage.maxProducts !== -1 && usage.currentProductCount >= usage.maxProducts
                       ? 'bg-red-500'
                       : 'bg-neutral-900'
                   }`}
@@ -250,7 +298,7 @@ export const SubscriptionTab: React.FC<Props> = ({ store, onStoreUpdated }) => {
                     width:
                       usage.maxProducts === -1
                         ? '20%'
-                        : `${Math.min(100, (usage.productCount / usage.maxProducts) * 100)}%`,
+                        : `${Math.min(100, (usage.currentProductCount / usage.maxProducts) * 100)}%`,
                   }}
                 />
               </div>
@@ -356,9 +404,9 @@ export const SubscriptionTab: React.FC<Props> = ({ store, onStoreUpdated }) => {
               Mensual
             </button>
             <button
-              onClick={() => setBillingCycle('annual')}
+              onClick={() => setBillingCycle('yearly')}
               className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition cursor-pointer flex items-center gap-1 ${
-                billingCycle === 'annual'
+                billingCycle === 'yearly'
                   ? 'bg-white text-neutral-900 shadow-xs'
                   : 'text-neutral-600 hover:text-neutral-900'
               }`}
@@ -380,7 +428,7 @@ export const SubscriptionTab: React.FC<Props> = ({ store, onStoreUpdated }) => {
           const price =
             billingCycle === 'monthly'
               ? plan.priceMonthly
-              : Math.round(plan.priceAnnual / 12);
+              : Math.round(plan.priceYearly / 12);
 
           return (
             <div
@@ -414,9 +462,9 @@ export const SubscriptionTab: React.FC<Props> = ({ store, onStoreUpdated }) => {
                       USD / mes
                     </span>
                   </div>
-                  {billingCycle === 'annual' && plan.priceAnnual > 0 && (
+                  {billingCycle === 'yearly' && plan.priceYearly > 0 && (
                     <p className="text-[11px] text-emerald-700 font-semibold mt-0.5">
-                      Facturado anualmente (${plan.priceAnnual} USD/año)
+                      Facturado anualmente (${plan.priceYearly} USD/año)
                     </p>
                   )}
                 </div>

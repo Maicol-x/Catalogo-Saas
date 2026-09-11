@@ -8,9 +8,10 @@ interface Props {
 }
 
 export const FeaturesTab: React.FC<Props> = ({ store }) => {
-  const { idToken } = useAuth();
+  const { loading: authLoading, getValidToken, user, firebaseUser } = useAuth();
   const [features, setFeatures] = useState<Feature[]>([]);
   const [loading, setLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   // New feature form
   const [newFeatureName, setNewFeatureName] = useState('');
@@ -22,24 +23,45 @@ export const FeaturesTab: React.FC<Props> = ({ store }) => {
   const [newValueText, setNewValueText] = useState('');
 
   const fetchFeatures = async () => {
+    if (authLoading) return;
     setLoading(true);
+    setErrorMessage(null);
+
     try {
-      const headers = idToken ? { Authorization: `Bearer ${idToken}` } : {};
+      const headers: Record<string, string> = {};
+      const currentUser = firebaseUser || user;
+      if (currentUser) {
+        const token = await getValidToken();
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+      }
+
       const res = await fetch(`/api/stores/${store.id}/features`, { headers });
       if (res.ok) {
         const data = await res.json();
-        setFeatures(data);
+        setFeatures(Array.isArray(data) ? data : []);
+      } else if (res.status === 401) {
+        setErrorMessage('Tu sesión ha expirado.');
+      } else if (res.status === 403) {
+        setErrorMessage('No tienes permisos de administración en este catálogo.');
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setErrorMessage(err.error || 'Error al cargar características.');
       }
     } catch (e) {
       console.error('Error fetching features:', e);
+      setErrorMessage('Error de conexión al cargar las características.');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchFeatures();
-  }, [store.id, idToken]);
+    if (!authLoading) {
+      fetchFeatures();
+    }
+  }, [store.id, authLoading]);
 
   const handleCreateFeature = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -52,10 +74,14 @@ export const FeaturesTab: React.FC<Props> = ({ store }) => {
       .filter(Boolean);
 
     try {
-      const headers = {
+      const token = await getValidToken();
+      const headers: Record<string, string> = {
         'Content-Type': 'application/json',
-        ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
       };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       const res = await fetch(`/api/stores/${store.id}/features`, {
         method: 'POST',
         headers,
@@ -85,7 +111,12 @@ export const FeaturesTab: React.FC<Props> = ({ store }) => {
   const handleDeleteFeature = async (featureId: number) => {
     if (!confirm('¿Eliminar esta característica? Se desvinculará de los productos que la usen.')) return;
     try {
-      const headers = idToken ? { Authorization: `Bearer ${idToken}` } : {};
+      const token = await getValidToken();
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       const res = await fetch(`/api/stores/${store.id}/features/${featureId}`, {
         method: 'DELETE',
         headers,
@@ -105,10 +136,14 @@ export const FeaturesTab: React.FC<Props> = ({ store }) => {
   const handleAddValue = async (featureId: number) => {
     if (!newValueText.trim()) return;
     try {
-      const headers = {
+      const token = await getValidToken();
+      const headers: Record<string, string> = {
         'Content-Type': 'application/json',
-        ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
       };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       const res = await fetch(`/api/stores/${store.id}/features/${featureId}/values`, {
         method: 'POST',
         headers,
@@ -136,7 +171,12 @@ export const FeaturesTab: React.FC<Props> = ({ store }) => {
 
   const handleDeleteValue = async (featureId: number, valueId: number) => {
     try {
-      const headers = idToken ? { Authorization: `Bearer ${idToken}` } : {};
+      const token = await getValidToken();
+      const headers: Record<string, string> = {};
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       const res = await fetch(`/api/stores/${store.id}/features/values/${valueId}`, {
         method: 'DELETE',
         headers,

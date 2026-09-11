@@ -11,11 +11,14 @@ interface AuthContextType {
   activeStore: Store | null;
   idToken: string | null;
   loading: boolean;
+  isAuthenticated: boolean;
   loginWithGoogle: () => Promise<void>;
   logout: () => Promise<void>;
   setActiveStore: (store: Store | null) => void;
   refreshUserData: () => Promise<void>;
   updateUserPhone: (phoneNumber: string, countryCode: string) => Promise<void>;
+  getValidToken: (forceRefresh?: boolean) => Promise<string | null>;
+  getAuthHeaders: (includeContentType?: boolean) => Promise<Record<string, string> | null>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -28,8 +31,46 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [idToken, setIdToken] = useState<string | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
 
+  // Centralized, safe token retrieval that guarantees a valid, non-undefined JWT
+  const getValidToken = async (forceRefresh = false): Promise<string | null> => {
+    const current = firebaseUser || auth.currentUser;
+    if (!current) return null;
+    try {
+      const token = await current.getIdToken(forceRefresh);
+      if (
+        token &&
+        typeof token === 'string' &&
+        token.trim().length > 20 &&
+        token !== 'undefined' &&
+        token !== 'null' &&
+        token !== '[object Object]'
+      ) {
+        setIdToken(token);
+        return token;
+      }
+    } catch (e) {
+      console.warn('[AuthContext] Error obtaining ID token:', e);
+    }
+    return null;
+  };
+
+  // Centralized helper to build headers without generating Bearer undefined/null
+  const getAuthHeaders = async (includeContentType = true): Promise<Record<string, string> | null> => {
+    const token = await getValidToken();
+    if (!token) return null;
+    const headers: Record<string, string> = {
+      Authorization: `Bearer ${token}`,
+    };
+    if (includeContentType) {
+      headers['Content-Type'] = 'application/json';
+    }
+    return headers;
+  };
+
   // Sync with backend API using token
   const syncWithBackend = async (token: string) => {
+    if (!token || token === 'undefined' || token.length < 20) return;
+
     try {
       const res = await fetch('/api/auth/sync', {
         method: 'POST',
@@ -63,10 +104,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (user) {
         try {
           const token = await user.getIdToken();
-          setIdToken(token);
-          await syncWithBackend(token);
+          if (token && token.length > 20 && token !== 'undefined') {
+            setIdToken(token);
+            await syncWithBackend(token);
+          } else {
+            setIdToken(null);
+          }
         } catch (e) {
-          console.error('Error retrieving ID token:', e);
+          console.error('Error retrieving ID token on state change:', e);
+          setIdToken(null);
         }
       } else {
         setIdToken(null);
@@ -85,8 +131,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLoading(true);
       const result = await signInWithPopup(auth, googleAuthProvider);
       const token = await result.user.getIdToken();
-      setIdToken(token);
-      await syncWithBackend(token);
+      if (token && token.length > 20) {
+        setIdToken(token);
+        await syncWithBackend(token);
+      }
     } catch (error: any) {
       console.error('Google Sign-in failed:', error);
       alert('No se pudo completar el inicio de sesión con Google: ' + (error.message || 'Error desconocido'));
@@ -97,9 +145,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = async () => {
     try {
-      if (firebaseUser) {
-        await signOut(auth);
-      }
+      await signOut(auth);
       setFirebaseUser(null);
       setDbUser(null);
       setStores([]);
@@ -111,20 +157,24 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const refreshUserData = async () => {
-    if (idToken) {
-      await syncWithBackend(idToken);
+    const token = await getValidToken(true);
+    if (token) {
+      await syncWithBackend(token);
     }
   };
 
   const updateUserPhone = async (phoneNumber: string, countryCode: string) => {
-    if (!idToken) return;
+    const token = await getValidToken();
+    if (!token) {
+      throw new Error('Debes iniciar sesión para actualizar tu teléfono');
+    }
 
     try {
       const res = await fetch('/api/user/profile', {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
-          Authorization: `Bearer ${idToken}`,
+          Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({ phoneNumber, countryCode }),
       });
@@ -137,7 +187,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
             method: 'PATCH',
             headers: {
               'Content-Type': 'application/json',
-              Authorization: `Bearer ${idToken}`,
+              Authorization: `Bearer ${token}`,
             },
             body: JSON.stringify({ phoneNumber, countryCode }),
           });
@@ -147,7 +197,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           }
         }
       } else {
-        const err = await res.json();
+        const err = await res.json().catch(() => ({}));
         throw new Error(err.error || 'Error al guardar teléfono');
       }
     } catch (e) {
@@ -166,11 +216,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         activeStore,
         idToken,
         loading,
+        isAuthenticated: !loading && !!firebaseUser,
         loginWithGoogle,
         logout,
         setActiveStore,
         refreshUserData,
         updateUserPhone,
+        getValidToken,
+        getAuthHeaders,
       }}
     >
       {children}

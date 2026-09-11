@@ -8,36 +8,62 @@ interface Props {
 }
 
 export const ReviewsTab: React.FC<Props> = ({ store }) => {
-  const { idToken } = useAuth();
+  const { loading: authLoading, getValidToken, user, firebaseUser } = useAuth();
   const [reviews, setReviews] = useState<Review[]>([]);
   const [loading, setLoading] = useState(true);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const fetchReviews = async () => {
+    if (authLoading) return;
     setLoading(true);
+    setErrorMessage(null);
+
     try {
-      const headers = idToken ? { Authorization: `Bearer ${idToken}` } : {};
+      const headers: Record<string, string> = {};
+      const currentUser = firebaseUser || user;
+      if (currentUser) {
+        const token = await getValidToken();
+        if (token) {
+          headers['Authorization'] = `Bearer ${token}`;
+        }
+      }
+
       const res = await fetch(`/api/stores/${store.id}/reviews`, { headers });
       if (res.ok) {
         const data = await res.json();
-        setReviews(data);
+        setReviews(Array.isArray(data) ? data : []);
+      } else if (res.status === 401) {
+        setErrorMessage('Sesión no válida o expirada.');
+      } else if (res.status === 403) {
+        setErrorMessage('No tienes permisos de moderador para este catálogo.');
+      } else {
+        const err = await res.json().catch(() => ({}));
+        setErrorMessage(err.error || 'Error al cargar las opiniones.');
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('Error fetching reviews:', e);
+      setErrorMessage('Error de conexión al cargar reseñas.');
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
-    fetchReviews();
-  }, [store.id, idToken]);
+    if (!authLoading) {
+      fetchReviews();
+    }
+  }, [store.id, authLoading]);
 
   const handleToggleApproval = async (review: Review) => {
     try {
-      const headers = {
+      const token = await getValidToken();
+      const headers: Record<string, string> = {
         'Content-Type': 'application/json',
-        ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
       };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       const res = await fetch(`/api/stores/${store.id}/reviews/${review.id}/moderate`, {
         method: 'PATCH',
         headers,
@@ -66,6 +92,19 @@ export const ReviewsTab: React.FC<Props> = ({ store }) => {
 
   return (
     <div id="reviews-management-tab" className="space-y-6">
+      {/* Error alert banner */}
+      {errorMessage && (
+        <div className="rounded-xl border border-red-200 bg-red-50 p-4 flex items-center justify-between gap-3 text-xs text-red-800 font-medium">
+          <span>{errorMessage}</span>
+          <button
+            onClick={fetchReviews}
+            className="px-2.5 py-1 bg-red-100 hover:bg-red-200 rounded-lg text-red-900 font-bold transition cursor-pointer"
+          >
+            Reintentar
+          </button>
+        </div>
+      )}
+
       {/* Top Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>

@@ -65,7 +65,7 @@ const COLOR_PRESETS = [
 ];
 
 export const BrandingTab: React.FC<Props> = ({ store, onStoreUpdated, onNavigateToSubscription }) => {
-  const { idToken } = useAuth();
+  const { getValidToken } = useAuth();
 
   // Form states initialized from current store
   const [name, setName] = useState(store.name);
@@ -158,10 +158,13 @@ export const BrandingTab: React.FC<Props> = ({ store, onStoreUpdated, onNavigate
     };
 
     try {
-      const headers = {
+      const token = await getValidToken();
+      const headers: Record<string, string> = {
         'Content-Type': 'application/json',
-        ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
       };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
 
       const res = await fetch(`/api/stores/${store.id}`, {
         method: 'PATCH',

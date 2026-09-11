@@ -11,7 +11,7 @@ interface Props {
 }
 
 export const CreateStoreModal: React.FC<Props> = ({ isOpen, onClose, onStoreCreated }) => {
-  const { idToken, dbUser } = useAuth();
+  const { getValidToken, dbUser } = useAuth();
   const [name, setName] = useState('');
   const [subdomain, setSubdomain] = useState('');
   const [phone, setPhone] = useState(dbUser?.phoneNumber || '');
@@ -81,12 +81,17 @@ export const CreateStoreModal: React.FC<Props> = ({ isOpen, onClose, onStoreCrea
 
     setCreating(true);
     try {
+      const token = await getValidToken();
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (token) {
+        headers['Authorization'] = `Bearer ${token}`;
+      }
+
       const res = await fetch('/api/stores', {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
-        },
+        headers,
         body: JSON.stringify({
           name: name.trim(),
           subdomain: subdomain.trim(),
