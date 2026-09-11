@@ -3,6 +3,15 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import { requireAuth, optionalAuth, AuthRequest } from './src/middleware/auth.ts';
+import { DecodedIdToken } from 'firebase-admin/auth';
+import {
+  reviewsRateLimiter,
+  storeCreationRateLimiter,
+  authSyncRateLimiter,
+  uploadRateLimiter,
+  webhooksRateLimiter,
+} from './src/middleware/rateLimiter.ts';
+import { isReservedSubdomain } from './src/lib/reservedSubdomains.ts';
 import { getOrCreateUser, getUserByUid, updateUserProfile } from './src/db/users.ts';
 import {
   createStore,
@@ -150,6 +159,32 @@ async function startServer() {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
   });
 
+  /**
+   * Data Minimization: Strips sensitive operational & user metadata (userId, userUid, etc.)
+   * before sending store information to public or untrusted clients.
+   */
+  function toPublicStoreDTO(store: any) {
+    if (!store) return null;
+    return {
+      id: store.id,
+      name: store.name,
+      subdomain: store.subdomain,
+      customDomain: store.customDomain,
+      plan: store.plan,
+      welcomeMessage: store.welcomeMessage,
+      countryCode: store.countryCode,
+      phoneNumber: store.phoneNumber,
+      logoUrl: store.logoUrl,
+      coverUrl: store.coverUrl,
+      primaryColor: store.primaryColor,
+      secondaryColor: store.secondaryColor,
+      backgroundColor: store.backgroundColor,
+      font: store.font,
+      currency: store.currency,
+      createdAt: store.createdAt,
+    };
+  }
+
   // -------------------------------------------------------------
   // Resolve Tenant / Subdomain Endpoint
   // Resolves whether this request is for a specific merchant catalog
@@ -165,7 +200,7 @@ async function startServer() {
         subdomain: tenant.store.subdomain,
         identifier: tenant.identifier,
         type: tenant.type,
-        store: tenant.store,
+        store: toPublicStoreDTO(tenant.store),
       });
     } catch (error: any) {
       console.error('Failed to resolve tenant:', error);
@@ -208,7 +243,10 @@ async function startServer() {
   // Check subdomain availability
   app.get('/api/stores/check-subdomain', async (req, res) => {
     try {
-      const subdomain = String(req.query.subdomain || '');
+      const subdomain = String(req.query.subdomain || '').trim().toLowerCase();
+      if (!subdomain || isReservedSubdomain(subdomain)) {
+        return res.json({ subdomain, available: false, reason: 'reserved' });
+      }
       const exclude = req.query.excludeStoreId ? Number(req.query.excludeStoreId) : undefined;
       const available = await isSubdomainAvailable(subdomain, exclude);
       res.json({ subdomain, available });
@@ -248,7 +286,7 @@ async function startServer() {
       });
 
       res.json({
-        store,
+        store: toPublicStoreDTO(store),
         features: featuresWithValues,
         products,
       });
@@ -267,8 +305,9 @@ async function startServer() {
       }
 
       const product = await getProductById(Number(req.params.productId));
-      if (!product || product.storeId !== store.id) {
-        return res.status(404).json({ error: 'Producto no encontrado' });
+      // Security: verify product belongs to this store AND is active (inactive products are not publicly exposed)
+      if (!product || product.storeId !== store.id || !product.isActive) {
+        return res.status(404).json({ error: 'Producto no encontrado o no disponible públicamente' });
       }
 
       const similar = await getSimilarProducts(product.id, store.id, 4);
@@ -276,7 +315,7 @@ async function startServer() {
       res.json({
         product,
         similar,
-        store,
+        store: toPublicStoreDTO(store),
       });
     } catch (error: any) {
       console.error('Error fetching product:', error);
@@ -284,24 +323,34 @@ async function startServer() {
     }
   });
 
-  // Public review creation
-  app.post('/api/catalog/:subdomain/products/:productId/reviews', async (req, res) => {
+  // Public review creation (with rate limiting and strict tenant verification)
+  app.post('/api/catalog/:subdomain/products/:productId/reviews', reviewsRateLimiter, async (req, res) => {
     try {
       const { authorName, rating, comment } = req.body;
       if (!authorName || !comment || !rating) {
         return res.status(400).json({ error: 'Nombre, puntuación y comentario son obligatorios' });
       }
 
-      const review = await createReview(Number(req.params.productId), {
-        authorName,
-        rating: Number(rating),
-        comment,
-      });
+      const store = await getStoreBySubdomain(req.params.subdomain);
+      if (!store) {
+        return res.status(404).json({ error: 'Catálogo no encontrado' });
+      }
+
+      const productId = Number(req.params.productId);
+      const review = await createReview(
+        productId,
+        {
+          authorName,
+          rating: Number(rating),
+          comment,
+        },
+        store.id
+      );
 
       res.status(201).json(review);
     } catch (error: any) {
       console.error('Error creating review:', error);
-      res.status(500).json({ error: error.message || 'Error al crear reseña' });
+      res.status(400).json({ error: error.message || 'Error al crear reseña' });
     }
   });
 
@@ -327,7 +376,7 @@ async function startServer() {
   });
 
   // Pluggable image upload handler (Local Disk / S3 / R2 / Supabase)
-  app.post('/api/upload', requireAuth, async (req: AuthRequest, res) => {
+  app.post('/api/upload', uploadRateLimiter, requireAuth, async (req: AuthRequest, res) => {
     try {
       const rawData = req.body.imageBase64 || req.body.fileData;
       if (!rawData || typeof rawData !== 'string') {
@@ -367,7 +416,7 @@ async function startServer() {
   // -------------------------------------------------------------
 
   // User Auth Sync
-  app.post('/api/auth/sync', requireAuth, async (req: AuthRequest, res) => {
+  app.post('/api/auth/sync', authSyncRateLimiter, requireAuth, async (req: AuthRequest, res) => {
     try {
       const token = req.user!;
       const user = await getOrCreateUser(token.uid, token.email || '', token.name);
@@ -403,9 +452,9 @@ async function startServer() {
   });
 
   // Create store
-  app.post('/api/stores', requireAuth, async (req: AuthRequest, res) => {
+  app.post('/api/stores', storeCreationRateLimiter, requireAuth, async (req: AuthRequest, res) => {
     try {
-      const { phoneNumber } = req.body;
+      const { phoneNumber, name, subdomain, welcomeMessage, countryCode, logoUrl, coverUrl, primaryColor, secondaryColor, backgroundColor, font, currency } = req.body;
       const cleanDigits = (phoneNumber || '').replace(/[\s\-\(\)\+]/g, '');
       if (!phoneNumber || cleanDigits.length < 7) {
         return res.status(400).json({
@@ -413,7 +462,21 @@ async function startServer() {
         });
       }
 
-      const store = await createStore(req.user!.uid, req.body);
+      // Security: never accept plan or userUid from request body
+      const store = await createStore(req.user!.uid, {
+        name,
+        subdomain,
+        welcomeMessage,
+        phoneNumber,
+        countryCode,
+        logoUrl,
+        coverUrl,
+        primaryColor,
+        secondaryColor,
+        backgroundColor,
+        font,
+        currency,
+      });
       res.status(201).json(store);
     } catch (error: any) {
       console.error('Create store error:', error);
@@ -421,16 +484,14 @@ async function startServer() {
     }
   });
 
-  // Helper to check if a user is allowed to manage a store (demo store is accessible in sandbox mode)
-  function canManageStore(store: any, user?: any): boolean {
-    if (!store) return false;
-    if (store.userUid === 'demo_merchant_uid_1') return true;
-    if (user && store.userUid === user.uid) return true;
-    return false;
+  // Strict tenant ownership check - requires authenticated token matching the store owner
+  function canManageStore(store: any, user?: DecodedIdToken): boolean {
+    if (!store || !user || !user.uid) return false;
+    return store.userUid === user.uid;
   }
 
   // Update store (Branding, Colors, WhatsApp, Subdomain, Custom Domain)
-  app.patch('/api/stores/:id', optionalAuth, async (req: AuthRequest, res) => {
+  app.patch('/api/stores/:id', requireAuth, async (req: AuthRequest, res) => {
     try {
       const storeId = Number(req.params.id);
       const store = await getStoreById(storeId);
@@ -438,7 +499,7 @@ async function startServer() {
         return res.status(404).json({ error: 'Tienda no encontrada' });
       }
       if (!canManageStore(store, req.user)) {
-        return res.status(403).json({ error: 'No autorizado' });
+        return res.status(403).json({ error: 'No autorizado para administrar esta tienda' });
       }
 
       if (req.body.phoneNumber !== undefined) {
@@ -461,8 +522,39 @@ async function startServer() {
         }
       }
 
-      const actingUserUid = req.user?.uid || store.userUid;
-      const updated = await updateStore(storeId, actingUserUid, req.body);
+      // Anti-Mass-Assignment: Only allow permitted fields
+      const {
+        name,
+        welcomeMessage,
+        phoneNumber,
+        countryCode,
+        logoUrl,
+        coverUrl,
+        primaryColor,
+        secondaryColor,
+        backgroundColor,
+        font,
+        currency,
+        subdomain,
+        customDomain,
+      } = req.body;
+
+      const allowedUpdate: Record<string, any> = {};
+      if (name !== undefined) allowedUpdate.name = name;
+      if (welcomeMessage !== undefined) allowedUpdate.welcomeMessage = welcomeMessage;
+      if (phoneNumber !== undefined) allowedUpdate.phoneNumber = phoneNumber;
+      if (countryCode !== undefined) allowedUpdate.countryCode = countryCode;
+      if (logoUrl !== undefined) allowedUpdate.logoUrl = logoUrl;
+      if (coverUrl !== undefined) allowedUpdate.coverUrl = coverUrl;
+      if (primaryColor !== undefined) allowedUpdate.primaryColor = primaryColor;
+      if (secondaryColor !== undefined) allowedUpdate.secondaryColor = secondaryColor;
+      if (backgroundColor !== undefined) allowedUpdate.backgroundColor = backgroundColor;
+      if (font !== undefined) allowedUpdate.font = font;
+      if (currency !== undefined) allowedUpdate.currency = currency;
+      if (subdomain !== undefined) allowedUpdate.subdomain = subdomain;
+      if (customDomain !== undefined) allowedUpdate.customDomain = customDomain;
+
+      const updated = await updateStore(storeId, req.user!.uid, allowedUpdate);
       res.json(updated);
     } catch (error: any) {
       console.error('Update store error:', error);
@@ -473,7 +565,7 @@ async function startServer() {
   // -------------------------------------------------------------
   // Subscription & Billing Routes
   // -------------------------------------------------------------
-  app.get('/api/stores/:storeId/subscription', optionalAuth, async (req: AuthRequest, res) => {
+  app.get('/api/stores/:storeId/subscription', requireAuth, async (req: AuthRequest, res) => {
     try {
       const storeId = Number(req.params.storeId);
       const store = await getStoreById(storeId);
@@ -497,7 +589,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/stores/:storeId/subscription/checkout', optionalAuth, async (req: AuthRequest, res) => {
+  app.post('/api/stores/:storeId/subscription/checkout', requireAuth, async (req: AuthRequest, res) => {
     try {
       const storeId = Number(req.params.storeId);
       const store = await getStoreById(storeId);
@@ -535,7 +627,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/stores/:storeId/subscription/plan', optionalAuth, async (req: AuthRequest, res) => {
+  app.post('/api/stores/:storeId/subscription/plan', requireAuth, async (req: AuthRequest, res) => {
     try {
       const storeId = Number(req.params.storeId);
       const store = await getStoreById(storeId);
@@ -544,6 +636,15 @@ async function startServer() {
       }
       if (!canManageStore(store, req.user)) {
         return res.status(403).json({ error: 'No autorizado' });
+      }
+
+      // Security: Prevent direct plan modification unless explicitly permitted in development/sandbox
+      const allowSandbox = process.env.ALLOW_SANDBOX_PLAN_SWITCH === 'true' || process.env.NODE_ENV === 'development';
+      if (!allowSandbox) {
+        return res.status(403).json({
+          error: 'PLAN_CHANGE_RESTRICTED',
+          message: 'La actualización directa de planes está deshabilitada en producción. Debes completar la suscripción mediante la pasarela de pagos correspondiente.',
+        });
       }
 
       const { plan } = req.body;
@@ -560,7 +661,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/stores/:storeId/subscription/cancel', optionalAuth, async (req: AuthRequest, res) => {
+  app.post('/api/stores/:storeId/subscription/cancel', requireAuth, async (req: AuthRequest, res) => {
     try {
       const storeId = Number(req.params.storeId);
       const store = await getStoreById(storeId);
@@ -581,7 +682,7 @@ async function startServer() {
   });
 
   // Webhooks for Stripe, MercadoPago, Paddle
-  app.post('/api/webhooks/:gateway', async (req, res) => {
+  app.post('/api/webhooks/:gateway', webhooksRateLimiter, async (req, res) => {
     try {
       const gateway = req.params.gateway as PaymentGateway;
       if (!['stripe', 'mercadopago', 'paddle'].includes(gateway)) {
@@ -600,7 +701,7 @@ async function startServer() {
   // -------------------------------------------------------------
   // Store Products CRUD
   // -------------------------------------------------------------
-  app.get('/api/stores/:storeId/products', optionalAuth, async (req: AuthRequest, res) => {
+  app.get('/api/stores/:storeId/products', requireAuth, async (req: AuthRequest, res) => {
     try {
       const storeId = Number(req.params.storeId);
       const store = await getStoreById(storeId);
@@ -615,7 +716,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/stores/:storeId/products', optionalAuth, async (req: AuthRequest, res) => {
+  app.post('/api/stores/:storeId/products', requireAuth, async (req: AuthRequest, res) => {
     try {
       const storeId = Number(req.params.storeId);
       const store = await getStoreById(storeId);
@@ -660,7 +761,7 @@ async function startServer() {
     }
   });
 
-  app.put('/api/stores/:storeId/products/:id', optionalAuth, async (req: AuthRequest, res) => {
+  app.put('/api/stores/:storeId/products/:id', requireAuth, async (req: AuthRequest, res) => {
     try {
       const storeId = Number(req.params.storeId);
       const productId = Number(req.params.id);
@@ -677,7 +778,7 @@ async function startServer() {
     }
   });
 
-  app.delete('/api/stores/:storeId/products/:id', optionalAuth, async (req: AuthRequest, res) => {
+  app.delete('/api/stores/:storeId/products/:id', requireAuth, async (req: AuthRequest, res) => {
     try {
       const storeId = Number(req.params.storeId);
       const productId = Number(req.params.id);
@@ -693,7 +794,7 @@ async function startServer() {
     }
   });
 
-  app.patch('/api/stores/:storeId/products/:id/toggle-active', optionalAuth, async (req: AuthRequest, res) => {
+  app.patch('/api/stores/:storeId/products/:id/toggle-active', requireAuth, async (req: AuthRequest, res) => {
     try {
       const storeId = Number(req.params.storeId);
       const productId = Number(req.params.id);
@@ -712,7 +813,7 @@ async function startServer() {
   // -------------------------------------------------------------
   // Store Features & Dynamic Attributes
   // -------------------------------------------------------------
-  app.get('/api/stores/:storeId/features', optionalAuth, async (req: AuthRequest, res) => {
+  app.get('/api/stores/:storeId/features', requireAuth, async (req: AuthRequest, res) => {
     try {
       const storeId = Number(req.params.storeId);
       const store = await getStoreById(storeId);
@@ -727,7 +828,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/stores/:storeId/features', optionalAuth, async (req: AuthRequest, res) => {
+  app.post('/api/stores/:storeId/features', requireAuth, async (req: AuthRequest, res) => {
     try {
       const storeId = Number(req.params.storeId);
       const store = await getStoreById(storeId);
@@ -747,7 +848,7 @@ async function startServer() {
     }
   });
 
-  app.delete('/api/stores/:storeId/features/:featureId', optionalAuth, async (req: AuthRequest, res) => {
+  app.delete('/api/stores/:storeId/features/:featureId', requireAuth, async (req: AuthRequest, res) => {
     try {
       const storeId = Number(req.params.storeId);
       const featureId = Number(req.params.featureId);
@@ -763,7 +864,7 @@ async function startServer() {
     }
   });
 
-  app.post('/api/stores/:storeId/features/:featureId/values', optionalAuth, async (req: AuthRequest, res) => {
+  app.post('/api/stores/:storeId/features/:featureId/values', requireAuth, async (req: AuthRequest, res) => {
     try {
       const storeId = Number(req.params.storeId);
       const featureId = Number(req.params.featureId);
@@ -783,7 +884,7 @@ async function startServer() {
     }
   });
 
-  app.delete('/api/stores/:storeId/features/values/:valueId', optionalAuth, async (req: AuthRequest, res) => {
+  app.delete('/api/stores/:storeId/features/values/:valueId', requireAuth, async (req: AuthRequest, res) => {
     try {
       const storeId = Number(req.params.storeId);
       const valueId = Number(req.params.valueId);
@@ -803,7 +904,7 @@ async function startServer() {
   // -------------------------------------------------------------
   // Store Reviews Moderation
   // -------------------------------------------------------------
-  app.get('/api/stores/:storeId/reviews', optionalAuth, async (req: AuthRequest, res) => {
+  app.get('/api/stores/:storeId/reviews', requireAuth, async (req: AuthRequest, res) => {
     try {
       const storeId = Number(req.params.storeId);
       const store = await getStoreById(storeId);
@@ -818,7 +919,7 @@ async function startServer() {
     }
   });
 
-  app.patch('/api/stores/:storeId/reviews/:reviewId/moderate', optionalAuth, async (req: AuthRequest, res) => {
+  app.patch('/api/stores/:storeId/reviews/:reviewId/moderate', requireAuth, async (req: AuthRequest, res) => {
     try {
       const storeId = Number(req.params.storeId);
       const reviewId = Number(req.params.reviewId);

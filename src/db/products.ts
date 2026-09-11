@@ -168,46 +168,86 @@ export async function getProductById(id: number) {
   }
 }
 
+/**
+ * Helper to strictly validate that all supplied feature value IDs belong to features owned by the given storeId.
+ * Prevents cross-tenant feature injection attacks (BOLA / IDOR).
+ */
+async function validateFeatureValuesBelongToStore(
+  client: typeof db,
+  featureValueIds: number[],
+  storeId: number
+): Promise<number[]> {
+  if (!featureValueIds || featureValueIds.length === 0) return [];
+  const uniqueIds = Array.from(new Set(featureValueIds.map(Number).filter((n) => !isNaN(n) && n > 0)));
+  if (uniqueIds.length === 0) return [];
+
+  const validFvs = await client
+    .select({ id: featureValues.id })
+    .from(featureValues)
+    .innerJoin(features, eq(featureValues.featureId, features.id))
+    .where(
+      and(
+        inArray(featureValues.id, uniqueIds),
+        eq(features.storeId, storeId)
+      )
+    );
+
+  if (validFvs.length !== uniqueIds.length) {
+    throw new Error('Uno o más atributos seleccionados no pertenecen a este catálogo.');
+  }
+
+  return uniqueIds;
+}
+
 export async function createProduct(storeId: number, input: CreateProductInput) {
   try {
-    const insertedProd = await db
-      .insert(products)
-      .values({
-        storeId,
-        name: input.name.trim(),
-        price: String(input.price),
-        summary: input.summary?.trim() || '',
-        description: input.description?.trim() || '',
-        isActive: input.isActive !== undefined ? input.isActive : true,
-      })
-      .returning();
+    return await db.transaction(async (tx) => {
+      // 1. Cross-tenant validation: verify all featureValueIds belong to this store
+      const validatedFvIds = await validateFeatureValuesBelongToStore(
+        tx as any,
+        input.featureValueIds || [],
+        storeId
+      );
 
-    const created = insertedProd[0];
+      // 2. Insert product under this specific storeId
+      const insertedProd = await tx
+        .insert(products)
+        .values({
+          storeId,
+          name: input.name.trim(),
+          price: String(input.price),
+          summary: input.summary?.trim() || '',
+          description: input.description?.trim() || '',
+          isActive: input.isActive !== undefined ? input.isActive : true,
+        })
+        .returning();
 
-    // Insert images
-    if (input.images && input.images.length > 0) {
-      for (let i = 0; i < input.images.length; i++) {
-        if (input.images[i].trim()) {
-          await db.insert(productImages).values({
-            productId: created.id,
-            url: input.images[i].trim(),
-            sortOrder: i,
-          });
+      const created = insertedProd[0];
+
+      // 3. Insert images transactionally
+      if (input.images && input.images.length > 0) {
+        for (let i = 0; i < input.images.length; i++) {
+          const imgUrl = (input.images[i] || '').trim();
+          if (imgUrl) {
+            await tx.insert(productImages).values({
+              productId: created.id,
+              url: imgUrl,
+              sortOrder: i,
+            });
+          }
         }
       }
-    }
 
-    // Insert feature values
-    if (input.featureValueIds && input.featureValueIds.length > 0) {
-      for (const fvId of input.featureValueIds) {
-        await db.insert(productFeatures).values({
+      // 4. Insert validated feature associations transactionally
+      for (const fvId of validatedFvIds) {
+        await tx.insert(productFeatures).values({
           productId: created.id,
           featureValueId: fvId,
         });
       }
-    }
 
-    return await getProductById(created.id);
+      return await getProductById(created.id);
+    });
   } catch (error) {
     console.error('createProduct error:', error);
     throw new Error('Failed to create product: ' + (error as Error).message, { cause: error });
@@ -216,53 +256,67 @@ export async function createProduct(storeId: number, input: CreateProductInput) 
 
 export async function updateProduct(id: number, storeId: number, input: Partial<CreateProductInput>) {
   try {
-    const existing = await db
-      .select()
-      .from(products)
-      .where(and(eq(products.id, id), eq(products.storeId, storeId)))
-      .limit(1);
+    return await db.transaction(async (tx) => {
+      // 1. Tenant Verification: Ensure product exists and belongs to storeId
+      const existing = await tx
+        .select()
+        .from(products)
+        .where(and(eq(products.id, id), eq(products.storeId, storeId)))
+        .limit(1);
 
-    if (!existing[0]) {
-      throw new Error('Product not found or unauthorized');
-    }
+      if (!existing[0]) {
+        throw new Error('Product not found or unauthorized');
+      }
 
-    const updatePayload: any = {
-      updatedAt: new Date(),
-    };
-    if (input.name !== undefined) updatePayload.name = input.name.trim();
-    if (input.price !== undefined) updatePayload.price = String(input.price);
-    if (input.summary !== undefined) updatePayload.summary = input.summary.trim();
-    if (input.description !== undefined) updatePayload.description = input.description.trim();
-    if (input.isActive !== undefined) updatePayload.isActive = input.isActive;
+      // 2. Anti-Mass-Assignment: Explicit whitelist of updatable product fields
+      const updatePayload: Record<string, any> = {
+        updatedAt: new Date(),
+      };
+      if (input.name !== undefined) updatePayload.name = input.name.trim();
+      if (input.price !== undefined) updatePayload.price = String(input.price);
+      if (input.summary !== undefined) updatePayload.summary = input.summary.trim();
+      if (input.description !== undefined) updatePayload.description = input.description.trim();
+      if (input.isActive !== undefined) updatePayload.isActive = Boolean(input.isActive);
 
-    await db.update(products).set(updatePayload).where(eq(products.id, id));
+      await tx
+        .update(products)
+        .set(updatePayload)
+        .where(and(eq(products.id, id), eq(products.storeId, storeId)));
 
-    // Update images if provided
-    if (input.images !== undefined) {
-      await db.delete(productImages).where(eq(productImages.productId, id));
-      for (let i = 0; i < input.images.length; i++) {
-        if (input.images[i].trim()) {
-          await db.insert(productImages).values({
+      // 3. Update images if explicitly provided
+      if (input.images !== undefined) {
+        await tx.delete(productImages).where(eq(productImages.productId, id));
+        for (let i = 0; i < input.images.length; i++) {
+          const imgUrl = (input.images[i] || '').trim();
+          if (imgUrl) {
+            await tx.insert(productImages).values({
+              productId: id,
+              url: imgUrl,
+              sortOrder: i,
+            });
+          }
+        }
+      }
+
+      // 4. Cross-Tenant Validation & Update for feature values
+      if (input.featureValueIds !== undefined) {
+        const validatedFvIds = await validateFeatureValuesBelongToStore(
+          tx as any,
+          input.featureValueIds,
+          storeId
+        );
+
+        await tx.delete(productFeatures).where(eq(productFeatures.productId, id));
+        for (const fvId of validatedFvIds) {
+          await tx.insert(productFeatures).values({
             productId: id,
-            url: input.images[i].trim(),
-            sortOrder: i,
+            featureValueId: fvId,
           });
         }
       }
-    }
 
-    // Update feature values if provided
-    if (input.featureValueIds !== undefined) {
-      await db.delete(productFeatures).where(eq(productFeatures.productId, id));
-      for (const fvId of input.featureValueIds) {
-        await db.insert(productFeatures).values({
-          productId: id,
-          featureValueId: fvId,
-        });
-      }
-    }
-
-    return await getProductById(id);
+      return await getProductById(id);
+    });
   } catch (error) {
     console.error('updateProduct error:', error);
     throw new Error('Failed to update product: ' + (error as Error).message, { cause: error });

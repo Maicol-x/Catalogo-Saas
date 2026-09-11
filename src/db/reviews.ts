@@ -22,23 +22,55 @@ export async function getProductReviews(productId: number, onlyApproved = true) 
 
 export async function createReview(
   productId: number,
-  data: { authorName: string; rating: number; comment: string }
+  data: { authorName: string; rating: number; comment: string },
+  storeId?: number
 ) {
   try {
+    // If storeId is provided, strictly verify that the target product belongs to that store and is active
+    if (storeId) {
+      const prod = await db
+        .select({ id: products.id, storeId: products.storeId, isActive: products.isActive })
+        .from(products)
+        .where(and(eq(products.id, productId), eq(products.storeId, storeId)))
+        .limit(1);
+
+      if (!prod[0] || !prod[0].isActive) {
+        throw new Error('Producto no encontrado o no disponible para recibir reseñas en este catálogo');
+      }
+    } else {
+      const prod = await db
+        .select({ id: products.id, isActive: products.isActive })
+        .from(products)
+        .where(eq(products.id, productId))
+        .limit(1);
+
+      if (!prod[0] || !prod[0].isActive) {
+        throw new Error('Producto no encontrado o no disponible para recibir reseñas');
+      }
+    }
+
+    const safeRating = Math.max(1, Math.min(5, Math.round(Number(data.rating) || 5)));
+    const safeAuthor = (data.authorName || 'Cliente').trim().slice(0, 80);
+    const safeComment = (data.comment || '').trim().slice(0, 1000);
+
+    if (!safeAuthor || !safeComment) {
+      throw new Error('El nombre y el comentario son requeridos');
+    }
+
     const res = await db
       .insert(reviews)
       .values({
         productId,
-        authorName: data.authorName.trim(),
-        rating: Math.max(1, Math.min(5, data.rating)),
-        comment: data.comment.trim(),
+        authorName: safeAuthor,
+        rating: safeRating,
+        comment: safeComment,
         isApproved: false, // Starts as pending moderation by merchant
       })
       .returning();
     return res[0];
   } catch (error) {
     console.error('createReview error:', error);
-    throw new Error('Failed to create review', { cause: error });
+    throw new Error('Failed to create review: ' + (error as Error).message, { cause: error });
   }
 }
 
