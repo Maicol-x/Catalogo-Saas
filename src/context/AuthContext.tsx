@@ -5,6 +5,7 @@ import { Store, User } from '../types.ts';
 
 interface AuthContextType {
   firebaseUser: FirebaseUser | null;
+  user: FirebaseUser | null;
   dbUser: User | null;
   stores: Store[];
   activeStore: Store | null;
@@ -159,6 +160,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     <AuthContext.Provider
       value={{
         firebaseUser,
+        user: firebaseUser,
         dbUser,
         stores,
         activeStore,

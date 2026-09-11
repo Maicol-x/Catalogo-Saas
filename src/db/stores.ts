@@ -5,6 +5,8 @@ import { stores, users } from './schema.ts';
 export interface CreateStoreInput {
   name: string;
   subdomain: string;
+  customDomain?: string;
+  plan?: string;
   welcomeMessage?: string;
   phoneNumber?: string;
   countryCode?: string;
@@ -43,6 +45,17 @@ export async function getStoreBySubdomain(subdomain: string) {
   } catch (error) {
     console.error('getStoreBySubdomain error:', error);
     throw new Error('Failed to fetch store by subdomain', { cause: error });
+  }
+}
+
+export async function getStoreByCustomDomain(domain: string) {
+  try {
+    const clean = domain.toLowerCase().trim();
+    const res = await db.select().from(stores).where(eq(stores.customDomain, clean)).limit(1);
+    return res[0] || null;
+  } catch (error) {
+    console.error('getStoreByCustomDomain error:', error);
+    throw new Error('Failed to fetch store by custom domain', { cause: error });
   }
 }
 
@@ -136,12 +149,34 @@ export async function updateStore(storeId: number, userUid: string, input: Parti
       }
     }
 
+    if (input.customDomain !== undefined) {
+      const cleanCustomDomain = input.customDomain ? input.customDomain.toLowerCase().trim() : null;
+      if (cleanCustomDomain) {
+        // Validate domain format (e.g., example.com, catalog.store.co)
+        if (!/^[a-z0-9]+([\-\.]{1}[a-z0-9]+)*\.[a-z]{2,10}$/.test(cleanCustomDomain)) {
+          throw new Error('Formato de dominio personalizado no válido (ej: mitienda.com)');
+        }
+        // Verify not already registered by another store
+        const existingDomain = await db
+          .select()
+          .from(stores)
+          .where(and(eq(stores.customDomain, cleanCustomDomain), ne(stores.id, storeId)))
+          .limit(1);
+        if (existingDomain.length > 0) {
+          throw new Error(`El dominio '${cleanCustomDomain}' ya está vinculado a otra tienda.`);
+        }
+      }
+    }
+
     const updatePayload: any = {
       ...input,
       updatedAt: new Date(),
     };
     if (input.subdomain) {
       updatePayload.subdomain = input.subdomain.toLowerCase().trim();
+    }
+    if (input.customDomain !== undefined) {
+      updatePayload.customDomain = input.customDomain ? input.customDomain.toLowerCase().trim() : null;
     }
 
     const updated = await db

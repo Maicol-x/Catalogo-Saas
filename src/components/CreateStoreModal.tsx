@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { X, Store as StoreIcon, CheckCircle2, AlertCircle, Sparkles, Phone } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.tsx';
 import { COUNTRY_CODES, isValidPhoneNumber } from '../lib/countryCodes.ts';
+import { getBaseDomain } from '../lib/domainConfig.ts';
 
 interface Props {
   isOpen: boolean;
@@ -169,7 +170,7 @@ export const CreateStoreModal: React.FC<Props> = ({ isOpen, onClose, onStoreCrea
                 className="w-full px-3 py-2.5 text-sm font-mono text-neutral-900 outline-none"
               />
               <span className="bg-neutral-100 px-3 py-2.5 text-xs font-semibold text-neutral-600 border-l border-neutral-200 select-none">
-                .catalogo.app
+                .{getBaseDomain()}
               </span>
             </div>
 

@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.tsx';
 import { Store } from '../types.ts';
+import { getStoreCatalogUrl, formatStoreAddress, getBaseDomain } from '../lib/domainConfig.ts';
 
 interface Props {
   currentView: 'dashboard' | 'catalog';
@@ -36,8 +37,8 @@ export const Navbar: React.FC<Props> = ({
   const [copied, setCopied] = useState(false);
 
   const catalogUrl = activeStore
-    ? `https://${activeStore.subdomain}.catalogo.app`
-    : 'https://mitienda.catalogo.app';
+    ? getStoreCatalogUrl(activeStore)
+    : `https://mitienda.${getBaseDomain()}`;
 
   const handleCopyUrl = (e: React.MouseEvent) => {
     e.stopPropagation();
@@ -106,7 +107,7 @@ export const Navbar: React.FC<Props> = ({
                               activeStore?.id === s.id ? 'text-neutral-300' : 'text-neutral-400'
                             }`}
                           >
-                            {s.subdomain}.catalogo.app
+                            {formatStoreAddress(s)}
                           </p>
                         </div>
                         {activeStore?.id === s.id && <Check className="h-3.5 w-3.5 shrink-0" />}
@@ -130,14 +131,14 @@ export const Navbar: React.FC<Props> = ({
               )}
             </div>
 
-            {/* Subdomain Badge */}
+            {/* Store URL Badge */}
             {activeStore && (
               <div className="hidden lg:flex items-center gap-1.5 rounded-full border border-neutral-200 bg-neutral-50/80 px-2.5 py-1 text-xs font-mono text-neutral-600">
                 <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-                <span>{activeStore.subdomain}.catalogo.app</span>
+                <span>{formatStoreAddress(activeStore)}</span>
                 <button
                   onClick={handleCopyUrl}
-                  title="Copiar subdominio"
+                  title="Copiar dirección web"
                   className="rounded p-0.5 hover:bg-neutral-200 text-neutral-500 hover:text-neutral-900 transition ml-0.5"
                 >
                   {copied ? <Check className="h-3 w-3 text-emerald-600" /> : <Copy className="h-3 w-3" />}

@@ -22,7 +22,7 @@ export const QrTab: React.FC<Props> = ({ store }) => {
   const [qrSvgString, setQrSvgString] = useState<string>('');
   const [copied, setCopied] = useState(false);
 
-  const { workingUrl, customDomainUrl } = getStorePublicUrl(store.subdomain);
+  const { workingUrl, customDomainUrl } = getStorePublicUrl(store.subdomain, store.customDomain);
 
   useEffect(() => {
     // Generate high-resolution PNG pointing to the working live catalog URL

@@ -17,8 +17,8 @@ export const requireAuth = async (
   }
 
   const token = authHeader.split('Bearer ')[1]?.trim();
-  if (!token) {
-    return res.status(401).json({ error: 'Unauthorized: Empty token' });
+  if (!token || token === 'undefined' || token === 'null' || token === '[object Object]') {
+    return res.status(401).json({ error: 'Unauthorized: Invalid token format' });
   }
 
   try {
@@ -39,7 +39,7 @@ export const optionalAuth = async (
   const authHeader = req.headers.authorization;
   if (authHeader && authHeader.startsWith('Bearer ')) {
     const token = authHeader.split('Bearer ')[1]?.trim();
-    if (token) {
+    if (token && token !== 'undefined' && token !== 'null' && token !== '[object Object]') {
       try {
         const decodedToken = await adminAuth.verifyIdToken(token);
         req.user = decodedToken;

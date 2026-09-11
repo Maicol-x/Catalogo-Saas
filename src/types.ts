@@ -8,6 +8,42 @@ export interface User {
   createdAt: string;
 }
 
+export type SubscriptionPlan = 'free' | 'pro' | 'business';
+export type SubscriptionStatus = 'active' | 'trialing' | 'past_due' | 'canceled' | 'incomplete';
+export type BillingCycle = 'monthly' | 'yearly';
+export type PaymentGateway = 'stripe' | 'mercadopago' | 'paddle' | 'manual';
+
+export interface StoreSubscription {
+  id: number;
+  storeId: number;
+  userId: number;
+  plan: SubscriptionPlan;
+  status: SubscriptionStatus;
+  billingCycle: BillingCycle;
+  provider: PaymentGateway;
+  providerSubscriptionId?: string | null;
+  providerCustomerId?: string | null;
+  currentPeriodStart?: string | null;
+  currentPeriodEnd?: string | null;
+  cancelAtPeriodEnd: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface StoreUsageMetrics {
+  plan: SubscriptionPlan;
+  status: SubscriptionStatus;
+  currentProductCount: number;
+  maxProducts: number;
+  maxImagesPerProduct: number;
+  customDomainEnabled: boolean;
+  advancedAnalyticsEnabled: boolean;
+  multiUserEnabled: boolean;
+  canAddProduct: boolean;
+  currentPeriodEnd?: string | null;
+  cancelAtPeriodEnd: boolean;
+}
+
 export interface Store {
   id: number;
   userId: number;
@@ -24,6 +60,8 @@ export interface Store {
   backgroundColor: string;
   font: string;
   currency: string;
+  customDomain?: string | null;
+  plan?: SubscriptionPlan;
   createdAt: string;
   updatedAt: string;
 }

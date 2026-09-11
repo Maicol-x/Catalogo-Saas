@@ -9,14 +9,19 @@ import {
   AlertCircle,
   Sparkles,
   ExternalLink,
+  Lock,
+  ArrowUpRight,
 } from 'lucide-react';
-import { Store } from '../../types.ts';
+import { Store, SubscriptionPlan } from '../../types.ts';
 import { useAuth } from '../../context/AuthContext.tsx';
 import { COUNTRY_CODES, isValidPhoneNumber } from '../../lib/countryCodes.ts';
+import { getBaseDomain } from '../../lib/domainConfig.ts';
+import { PLAN_CONFIGS } from '../../lib/plans.ts';
 
 interface Props {
   store: Store;
   onStoreUpdated: (updated: Store) => void;
+  onNavigateToSubscription?: () => void;
 }
 
 const FONT_OPTIONS = [
@@ -59,12 +64,13 @@ const COLOR_PRESETS = [
   },
 ];
 
-export const BrandingTab: React.FC<Props> = ({ store, onStoreUpdated }) => {
+export const BrandingTab: React.FC<Props> = ({ store, onStoreUpdated, onNavigateToSubscription }) => {
   const { idToken } = useAuth();
 
   // Form states initialized from current store
   const [name, setName] = useState(store.name);
   const [subdomain, setSubdomain] = useState(store.subdomain);
+  const [customDomain, setCustomDomain] = useState(store.customDomain || '');
   const [welcomeMessage, setWelcomeMessage] = useState(store.welcomeMessage || '');
   const [phone, setPhone] = useState(store.phoneNumber || '');
   const [countryCode, setCountryCode] = useState(store.countryCode || '+52');
@@ -83,6 +89,10 @@ export const BrandingTab: React.FC<Props> = ({ store, onStoreUpdated }) => {
 
   const [saving, setSaving] = useState(false);
   const [successNotice, setSuccessNotice] = useState(false);
+
+  const currentPlan = (store.plan as SubscriptionPlan) || 'free';
+  const isCustomDomainSupported = currentPlan === 'pro' || currentPlan === 'business';
+  const baseDomain = getBaseDomain();
 
   const handleSubdomainChange = async (val: string) => {
     const slug = val.toLowerCase().replace(/[^a-z0-9-]/g, '');
@@ -131,9 +141,10 @@ export const BrandingTab: React.FC<Props> = ({ store, onStoreUpdated }) => {
     setSaving(true);
     setSuccessNotice(false);
 
-    const payload = {
+    const payload: any = {
       name: name.trim(),
       subdomain: subdomain.trim(),
+      customDomain: customDomain.trim() ? customDomain.trim().toLowerCase() : null,
       welcomeMessage: welcomeMessage.trim(),
       phoneNumber: phone.trim(),
       countryCode,
@@ -231,7 +242,7 @@ export const BrandingTab: React.FC<Props> = ({ store, onStoreUpdated }) => {
                   className="w-full px-3 py-2 text-xs font-mono text-neutral-900 outline-none"
                 />
                 <span className="bg-neutral-50 px-3 py-2 text-xs font-semibold text-neutral-600 select-none border-l border-neutral-200">
-                  .catalogo.app
+                  .{baseDomain}
                 </span>
               </div>
               <div className="mt-1.5 flex items-center gap-1.5 text-xs">
@@ -247,6 +258,58 @@ export const BrandingTab: React.FC<Props> = ({ store, onStoreUpdated }) => {
                   </span>
                 )}
               </div>
+            </div>
+
+            {/* Custom Domain Section (Pro/Business) */}
+            <div className="pt-2 border-t border-neutral-100">
+              <div className="flex items-center justify-between mb-1">
+                <label className="block text-xs font-medium text-neutral-700">
+                  Dominio Personalizado (ej: mitienda.com)
+                </label>
+                {!isCustomDomainSupported ? (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded-full border border-amber-200">
+                    <Lock className="h-3 w-3" /> Requiere Plan Pro
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold text-emerald-800 bg-emerald-100 px-2 py-0.5 rounded-full border border-emerald-200">
+                    <Sparkles className="h-3 w-3" /> Habilitado en tu Plan
+                  </span>
+                )}
+              </div>
+
+              <div className="flex rounded-xl border border-neutral-300 overflow-hidden shadow-xs focus-within:border-neutral-900 focus-within:ring-1 focus-within:ring-neutral-900">
+                <span className="bg-neutral-50 px-3 py-2 text-xs font-medium text-neutral-400 select-none border-r border-neutral-200">
+                  https://
+                </span>
+                <input
+                  type="text"
+                  disabled={!isCustomDomainSupported}
+                  value={customDomain}
+                  onChange={(e) => setCustomDomain(e.target.value)}
+                  placeholder="www.mitienda.com"
+                  className="w-full px-3 py-2 text-xs font-mono text-neutral-900 outline-none disabled:bg-neutral-50 disabled:text-neutral-400"
+                />
+              </div>
+
+              {!isCustomDomainSupported ? (
+                <div className="mt-2 flex items-center justify-between text-xs text-neutral-500 bg-neutral-50 p-2.5 rounded-xl border border-neutral-200">
+                  <span>Conecta tu propio dominio y certificados SSL con el Plan Pro.</span>
+                  {onNavigateToSubscription && (
+                    <button
+                      type="button"
+                      onClick={onNavigateToSubscription}
+                      className="text-xs font-bold text-neutral-900 hover:underline inline-flex items-center gap-1 cursor-pointer"
+                    >
+                      Mejorar Plan
+                      <ArrowUpRight className="h-3 w-3" />
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <p className="mt-1.5 text-[11px] text-neutral-500">
+                  Apunta tu registro DNS CNAME hacia <code className="bg-neutral-100 px-1 py-0.5 rounded text-neutral-800">cname.{baseDomain}</code>. Certificado SSL generado automáticamente.
+                </p>
+              )}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2">
@@ -498,7 +561,7 @@ export const BrandingTab: React.FC<Props> = ({ store, onStoreUpdated }) => {
               Vista Previa en Tiempo Real
             </span>
             <span className="text-[11px] text-neutral-400 font-mono">
-              {subdomain || 'demo'}.catalogo.app
+              {customDomain || (subdomain ? `${subdomain}.${baseDomain}` : `demo.${baseDomain}`)}
             </span>
           </div>
 
@@ -512,7 +575,7 @@ export const BrandingTab: React.FC<Props> = ({ store, onStoreUpdated }) => {
                 <span className="h-2.5 w-2.5 rounded-full bg-emerald-400" />
               </div>
               <div className="flex-1 rounded-md bg-white px-2 py-0.5 text-[10px] font-mono text-neutral-500 truncate text-center border border-neutral-200">
-                https://{subdomain || 'tienda'}.catalogo.app
+                https://{customDomain || (subdomain ? `${subdomain}.${baseDomain}` : `tienda.${baseDomain}`)}
               </div>
             </div>
 
@@ -552,7 +615,7 @@ export const BrandingTab: React.FC<Props> = ({ store, onStoreUpdated }) => {
                     {name || 'Mi Negocio'}
                   </h4>
                   <p className="text-[10px] text-neutral-500 font-mono mt-0.5">
-                    {subdomain || 'mi-tienda'}.catalogo.app
+                    {customDomain || (subdomain ? `${subdomain}.${baseDomain}` : `mi-tienda.${baseDomain}`)}
                   </p>
                 </div>
               </div>

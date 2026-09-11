@@ -9,6 +9,8 @@ import {
   Phone,
   Store as StoreIcon,
   CheckCircle,
+  CreditCard,
+  Sparkles,
 } from 'lucide-react';
 import { Store } from '../../types.ts';
 import { ProductsTab } from './ProductsTab.tsx';
@@ -16,6 +18,8 @@ import { FeaturesTab } from './FeaturesTab.tsx';
 import { BrandingTab } from './BrandingTab.tsx';
 import { QrTab } from './QrTab.tsx';
 import { ReviewsTab } from './ReviewsTab.tsx';
+import { SubscriptionTab } from './SubscriptionTab.tsx';
+import { getStoreCatalogUrl, formatStoreAddress } from '../../lib/domainConfig.ts';
 
 interface Props {
   store: Store;
@@ -26,7 +30,7 @@ interface Props {
   onTabChange?: (tab: TabType) => void;
 }
 
-export type TabType = 'products' | 'features' | 'branding' | 'qr' | 'reviews';
+export type TabType = 'products' | 'features' | 'branding' | 'qr' | 'reviews' | 'subscription';
 
 export const DashboardView: React.FC<Props> = ({
   store,
@@ -40,7 +44,8 @@ export const DashboardView: React.FC<Props> = ({
   const activeTab = controlledTab ?? internalTab;
   const setActiveTab = onTabChange ?? setInternalTab;
 
-  const catalogUrl = `https://${store.subdomain}.catalogo.app`;
+  const catalogUrl = getStoreCatalogUrl(store);
+  const displayAddress = formatStoreAddress(store);
 
   return (
     <div id="dashboard-view" className="min-h-screen bg-neutral-50 pb-16">
@@ -73,9 +78,16 @@ export const DashboardView: React.FC<Props> = ({
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
                     En línea
                   </span>
+                  <button
+                    onClick={() => setActiveTab('subscription')}
+                    className="inline-flex items-center gap-1 rounded-full bg-neutral-900 px-2.5 py-0.5 text-[10px] font-bold text-white hover:bg-neutral-800 transition cursor-pointer"
+                  >
+                    <Sparkles className="h-2.5 w-2.5 text-amber-400" />
+                    Plan {((store.plan as string) || 'FREE').toUpperCase()}
+                  </button>
                 </div>
                 <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-neutral-500">
-                  <span className="font-mono text-neutral-700 font-medium">{catalogUrl}</span>
+                  <span className="font-mono text-neutral-700 font-medium">{displayAddress}</span>
                   <span>•</span>
                   <span className="flex items-center gap-1">
                     <Phone className="h-3 w-3 text-emerald-600" />
@@ -100,7 +112,7 @@ export const DashboardView: React.FC<Props> = ({
                 className="inline-flex items-center gap-2 rounded-xl border border-neutral-300 bg-white px-4 py-2 text-xs font-semibold text-neutral-800 shadow-xs hover:bg-neutral-50 transition cursor-pointer"
               >
                 <ExternalLink className="h-3.5 w-3.5 text-neutral-500" />
-                Ver Catálogo en Subdominio
+                Ver Catálogo Digital
               </button>
             </div>
           </div>
@@ -143,7 +155,7 @@ export const DashboardView: React.FC<Props> = ({
               }`}
             >
               <Palette className="h-4 w-4" />
-              Marca & Diseño
+              Marca & Dominio
             </button>
 
             <button
@@ -171,19 +183,44 @@ export const DashboardView: React.FC<Props> = ({
               <Star className="h-4 w-4" />
               Reseñas de Clientes
             </button>
+
+            <button
+              id="tab-subscription"
+              onClick={() => setActiveTab('subscription')}
+              className={`flex items-center gap-2 px-3.5 py-2.5 text-xs font-semibold border-b-2 transition whitespace-nowrap cursor-pointer ${
+                activeTab === 'subscription'
+                  ? 'border-neutral-900 text-neutral-900'
+                  : 'border-transparent text-neutral-500 hover:text-neutral-900 hover:border-neutral-300'
+              }`}
+            >
+              <CreditCard className="h-4 w-4" />
+              Planes & Facturación
+            </button>
           </div>
         </div>
       </div>
 
       {/* Main Tab Content */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">
-        {activeTab === 'products' && <ProductsTab store={store} />}
+        {activeTab === 'products' && (
+          <ProductsTab
+            store={store}
+            onNavigateToSubscription={() => setActiveTab('subscription')}
+          />
+        )}
         {activeTab === 'features' && <FeaturesTab store={store} />}
         {activeTab === 'branding' && (
-          <BrandingTab store={store} onStoreUpdated={onStoreUpdated} />
+          <BrandingTab
+            store={store}
+            onStoreUpdated={onStoreUpdated}
+            onNavigateToSubscription={() => setActiveTab('subscription')}
+          />
         )}
         {activeTab === 'qr' && <QrTab store={store} />}
         {activeTab === 'reviews' && <ReviewsTab store={store} />}
+        {activeTab === 'subscription' && (
+          <SubscriptionTab store={store} onStoreUpdated={onStoreUpdated} />
+        )}
       </main>
     </div>
   );

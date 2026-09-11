@@ -14,12 +14,16 @@ import {
   AlertTriangle,
   Sparkles,
   Upload,
+  ArrowUpRight,
 } from 'lucide-react';
-import { Product, Store, Feature } from '../../types.ts';
+import { Product, Store, Feature, SubscriptionPlan } from '../../types.ts';
 import { useAuth } from '../../context/AuthContext.tsx';
+import { formatStoreAddress } from '../../lib/domainConfig.ts';
+import { PLAN_CONFIGS } from '../../lib/plans.ts';
 
 interface Props {
   store: Store;
+  onNavigateToSubscription?: () => void;
 }
 
 const SAMPLE_IMAGE_PRESETS = [
@@ -33,7 +37,7 @@ const SAMPLE_IMAGE_PRESETS = [
   'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=800&auto=format&fit=crop&q=80',
 ];
 
-export const ProductsTab: React.FC<Props> = ({ store }) => {
+export const ProductsTab: React.FC<Props> = ({ store, onNavigateToSubscription }) => {
   const { idToken } = useAuth();
   const [products, setProducts] = useState<Product[]>([]);
   const [features, setFeatures] = useState<Feature[]>([]);
@@ -156,6 +160,11 @@ export const ProductsTab: React.FC<Props> = ({ store }) => {
     const file = e.target.files?.[0];
     if (!file) return;
 
+    if (images.length >= planConfig.maxImagesPerProduct) {
+      alert(`Tu plan actual (${planConfig.name}) permite un máximo de ${planConfig.maxImagesPerProduct} imagen(es) por producto. Actualiza a Pro para añadir galería de fotos completa.`);
+      return;
+    }
+
     if (file.size > 5 * 1024 * 1024) {
       alert('La imagen no puede exceder 5MB.');
       return;
@@ -198,7 +207,12 @@ export const ProductsTab: React.FC<Props> = ({ store }) => {
 
   const handleAddImage = (urlToAdd: string) => {
     const trimmed = urlToAdd.trim();
-    if (trimmed && !images.includes(trimmed)) {
+    if (!trimmed) return;
+    if (images.length >= planConfig.maxImagesPerProduct) {
+      alert(`Tu plan actual (${planConfig.name}) permite un máximo de ${planConfig.maxImagesPerProduct} imagen(es) por producto. Actualiza a Pro para galería de fotos.`);
+      return;
+    }
+    if (!images.includes(trimmed)) {
       setImages([...images, trimmed]);
       setNewImageUrl('');
     }
@@ -290,14 +304,53 @@ export const ProductsTab: React.FC<Props> = ({ store }) => {
       (p.summary && p.summary.toLowerCase().includes(search.toLowerCase()))
   );
 
+  const currentPlan = (store.plan as SubscriptionPlan) || 'free';
+  const planConfig = PLAN_CONFIGS[currentPlan] || PLAN_CONFIGS.free;
+  const isAtProductLimit = planConfig.maxProducts !== -1 && products.length >= planConfig.maxProducts;
+
+  const displayAddress = formatStoreAddress(store);
+
   return (
     <div id="products-management-tab" className="space-y-6">
+      {/* Plan limit warning banner */}
+      {isAtProductLimit && (
+        <div className="rounded-2xl border border-amber-300 bg-amber-50 p-4 sm:p-5 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div className="flex items-start gap-3">
+            <div className="p-2 rounded-xl bg-amber-100 text-amber-800 shrink-0">
+              <Sparkles className="h-5 w-5" />
+            </div>
+            <div>
+              <h4 className="text-sm font-bold text-amber-900">
+                Límite de catálogo alcanzado ({products.length}/{planConfig.maxProducts} productos)
+              </h4>
+              <p className="text-xs text-amber-700 mt-0.5">
+                Tu plan actual ({planConfig.name}) permite hasta {planConfig.maxProducts} artículos. Para agregar productos ilimitados y múltiples imágenes, actualiza al Plan Pro.
+              </p>
+            </div>
+          </div>
+          {onNavigateToSubscription && (
+            <button
+              onClick={onNavigateToSubscription}
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-neutral-900 text-xs font-bold text-white hover:bg-neutral-800 transition shadow-xs shrink-0 cursor-pointer"
+            >
+              Ver Planes Pro
+              <ArrowUpRight className="h-3.5 w-3.5" />
+            </button>
+          )}
+        </div>
+      )}
+
       {/* Top action bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
         <div>
-          <h2 className="text-xl font-bold tracking-tight text-neutral-900">Productos del Catálogo</h2>
+          <div className="flex items-center gap-2">
+            <h2 className="text-xl font-bold tracking-tight text-neutral-900">Productos del Catálogo</h2>
+            <span className="text-[11px] font-semibold px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-600 border border-neutral-200">
+              {products.length} {planConfig.maxProducts === -1 ? 'artículos' : `/ ${planConfig.maxProducts}`}
+            </span>
+          </div>
           <p className="text-xs text-neutral-500 mt-0.5">
-            Administra los artículos visibles para tus clientes en <span className="font-mono">{store.subdomain}.catalogo.app</span>
+            Administra los artículos visibles para tus clientes en <span className="font-mono">{displayAddress}</span>
           </p>
         </div>
 
@@ -315,11 +368,28 @@ export const ProductsTab: React.FC<Props> = ({ store }) => {
 
           <button
             id="btn-add-new-product"
-            onClick={openCreateModal}
-            className="inline-flex items-center gap-1.5 rounded-xl bg-neutral-900 px-4 py-2 text-xs font-semibold text-white shadow-xs hover:bg-neutral-800 transition shrink-0"
+            onClick={() => {
+              if (isAtProductLimit && onNavigateToSubscription) {
+                onNavigateToSubscription();
+              } else {
+                openCreateModal();
+              }
+            }}
+            className={`inline-flex items-center gap-1.5 rounded-xl px-4 py-2 text-xs font-semibold text-white shadow-xs transition shrink-0 cursor-pointer ${
+              isAtProductLimit ? 'bg-amber-600 hover:bg-amber-700' : 'bg-neutral-900 hover:bg-neutral-800'
+            }`}
           >
-            <Plus className="h-4 w-4" />
-            Nuevo Producto
+            {isAtProductLimit ? (
+              <>
+                <Sparkles className="h-4 w-4" />
+                Actualizar para Añadir
+              </>
+            ) : (
+              <>
+                <Plus className="h-4 w-4" />
+                Nuevo Producto
+              </>
+            )}
           </button>
         </div>
       </div>
@@ -572,9 +642,14 @@ export const ProductsTab: React.FC<Props> = ({ store }) => {
               {/* Multiple Images Gallery with Reordering */}
               <div>
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700">
-                    Galería de Imágenes (Reordenable)
-                  </label>
+                  <div className="flex items-center gap-2">
+                    <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700">
+                      Galería de Imágenes
+                    </label>
+                    <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-neutral-100 text-neutral-600 border border-neutral-200">
+                      {images.length}/{planConfig.maxImagesPerProduct} fotos ({planConfig.name})
+                    </span>
+                  </div>
                   <span className="text-[11px] text-neutral-500">
                     La primera imagen será la foto de portada
                   </span>

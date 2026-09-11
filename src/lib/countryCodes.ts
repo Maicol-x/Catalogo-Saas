@@ -86,22 +86,26 @@ export function generateWhatsAppLink(params: {
   return `https://wa.me/${cleanPhone}?text=${encodeURIComponent(message)}`;
 }
 
+import { getBaseDomain } from './domainConfig.ts';
+
 /**
  * Returns both the working URL (for development, preview, and real-world scanning on the current domain)
  * and the branded custom domain URL.
  */
-export function getStorePublicUrl(subdomain: string): {
+export function getStorePublicUrl(subdomain: string, customDomain?: string | null): {
   workingUrl: string;
   customDomainUrl: string;
 } {
   const origin =
     typeof window !== 'undefined' && window.location.origin
       ? window.location.origin
-      : 'https://catalogo.app';
+      : `https://${getBaseDomain()}`;
 
-  // Real working link that directly resolves on the current application server
-  const workingUrl = `${origin}/?subdomain=${subdomain}`;
-  const customDomainUrl = `https://${subdomain}.catalogo.app`;
+  const baseDomain = getBaseDomain();
+  const customDomainUrl = customDomain ? `https://${customDomain}` : `https://${subdomain}.${baseDomain}`;
+
+  // In production or custom domain, if origin matches or custom domain is active
+  const workingUrl = customDomain ? `https://${customDomain}` : `${origin}/?subdomain=${subdomain}`;
 
   return { workingUrl, customDomainUrl };
 }
