@@ -1,14 +1,18 @@
-import { eq, and, desc } from 'drizzle-orm';
+import { eq, and, desc, inArray } from 'drizzle-orm';
 import { db } from './index.ts';
 import { reviews, products } from './schema.ts';
 
 export async function getProductReviews(productId: number, onlyApproved = true) {
   try {
-    let query = db.select().from(reviews).where(eq(reviews.productId, productId));
-    const all = await query.orderBy(desc(reviews.createdAt));
+    const conditions = [eq(reviews.productId, productId)];
     if (onlyApproved) {
-      return all.filter((r) => r.isApproved);
+      conditions.push(eq(reviews.isApproved, true));
     }
+    const all = await db
+      .select()
+      .from(reviews)
+      .where(and(...conditions))
+      .orderBy(desc(reviews.createdAt));
     return all;
   } catch (error) {
     console.error('getProductReviews error:', error);
@@ -28,7 +32,7 @@ export async function createReview(
         authorName: data.authorName.trim(),
         rating: Math.max(1, Math.min(5, data.rating)),
         comment: data.comment.trim(),
-        isApproved: true,
+        isApproved: false, // Starts as pending moderation by merchant
       })
       .returning();
     return res[0];
@@ -40,14 +44,21 @@ export async function createReview(
 
 export async function getStoreReviews(storeId: number) {
   try {
-    const storeProducts = await db.select().from(products).where(eq(products.storeId, storeId));
+    const storeProducts = await db
+      .select({ id: products.id, name: products.name })
+      .from(products)
+      .where(eq(products.storeId, storeId));
+
     if (storeProducts.length === 0) return [];
 
     const productIds = storeProducts.map((p) => p.id);
     const prodMap = new Map(storeProducts.map((p) => [p.id, p.name]));
 
-    const allReviews = await db.select().from(reviews).orderBy(desc(reviews.createdAt));
-    const relevant = allReviews.filter((r) => productIds.includes(r.productId));
+    const relevant = await db
+      .select()
+      .from(reviews)
+      .where(inArray(reviews.productId, productIds))
+      .orderBy(desc(reviews.createdAt));
 
     return relevant.map((r) => ({
       ...r,
@@ -59,8 +70,24 @@ export async function getStoreReviews(storeId: number) {
   }
 }
 
-export async function moderateReview(reviewId: number, isApproved: boolean) {
+export async function moderateReview(reviewId: number, isApproved: boolean, storeId?: number) {
   try {
+    // If storeId is provided, verify this review belongs to a product in this store
+    if (storeId) {
+      const reviewRecord = await db
+        .select({
+          reviewId: reviews.id,
+          storeId: products.storeId,
+        })
+        .from(reviews)
+        .innerJoin(products, eq(reviews.productId, products.id))
+        .where(and(eq(reviews.id, reviewId), eq(products.storeId, storeId)));
+
+      if (reviewRecord.length === 0) {
+        throw new Error('Unauthorized: Review does not belong to this store');
+      }
+    }
+
     const res = await db
       .update(reviews)
       .set({ isApproved })

@@ -70,9 +70,13 @@ export const FeaturesTab: React.FC<Props> = ({ store }) => {
         setFeatures([...features, created]);
         setNewFeatureName('');
         setInitialValuesInput('');
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'Error al crear la característica');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Create feature error:', err);
+      alert('Error de conexión al crear característica: ' + (err.message || ''));
     } finally {
       setCreatingFeature(false);
     }
@@ -88,9 +92,13 @@ export const FeaturesTab: React.FC<Props> = ({ store }) => {
       });
       if (res.ok) {
         setFeatures(features.filter((f) => f.id !== featureId));
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'No se pudo eliminar la característica.');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Delete feature error:', err);
+      alert('Error de conexión: ' + (err.message || ''));
     }
   };
 
@@ -116,9 +124,13 @@ export const FeaturesTab: React.FC<Props> = ({ store }) => {
         );
         setNewValueText('');
         setActiveFeatureForValue(null);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'No se pudo agregar el valor.');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Add value error:', err);
+      alert('Error de conexión: ' + (err.message || ''));
     }
   };
 
@@ -137,9 +149,13 @@ export const FeaturesTab: React.FC<Props> = ({ store }) => {
               : f
           )
         );
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'No se pudo eliminar el valor.');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Delete value error:', err);
+      alert('Error de conexión: ' + (err.message || ''));
     }
   };
 

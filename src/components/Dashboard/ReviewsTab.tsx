@@ -49,9 +49,13 @@ export const ReviewsTab: React.FC<Props> = ({ store }) => {
         setReviews((prev) =>
           prev.map((r) => (r.id === review.id ? { ...r, isApproved: updated.isApproved } : r))
         );
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'No se pudo moderar la reseña.');
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error moderating review:', err);
+      alert('Error de conexión: ' + (err.message || ''));
     }
   };
 

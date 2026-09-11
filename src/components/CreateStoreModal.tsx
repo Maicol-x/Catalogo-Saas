@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
-import { X, Store as StoreIcon, CheckCircle2, AlertCircle, Sparkles } from 'lucide-react';
+import { X, Store as StoreIcon, CheckCircle2, AlertCircle, Sparkles, Phone } from 'lucide-react';
 import { useAuth } from '../context/AuthContext.tsx';
-import { COUNTRY_CODES } from '../lib/countryCodes.ts';
+import { COUNTRY_CODES, isValidPhoneNumber } from '../lib/countryCodes.ts';
 
 interface Props {
   isOpen: boolean;
@@ -20,13 +20,13 @@ export const CreateStoreModal: React.FC<Props> = ({ isOpen, onClose, onStoreCrea
   const [checkingSubdomain, setCheckingSubdomain] = useState(false);
   const [subdomainAvailable, setSubdomainAvailable] = useState<boolean | null>(null);
   const [subdomainError, setSubdomainError] = useState<string | null>(null);
+  const [phoneError, setPhoneError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
 
   if (!isOpen) return null;
 
   const handleNameChange = (val: string) => {
     setName(val);
-    // Auto generate suggested subdomain slug if not manually customized
     const slug = val
       .toLowerCase()
       .normalize('NFD')
@@ -69,7 +69,14 @@ export const CreateStoreModal: React.FC<Props> = ({ isOpen, onClose, onStoreCrea
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setPhoneError(null);
+
     if (!name.trim() || !subdomain.trim() || subdomainAvailable === false) return;
+
+    if (!isValidPhoneNumber(phone)) {
+      setPhoneError('Ingresa un número de celular válido (mínimo 7 dígitos) para recibir los pedidos por WhatsApp.');
+      return;
+    }
 
     setCreating(true);
     try {
@@ -117,7 +124,7 @@ export const CreateStoreModal: React.FC<Props> = ({ isOpen, onClose, onStoreCrea
             </div>
             <div>
               <h3 className="text-base font-bold text-neutral-900">Crear nuevo catálogo</h3>
-              <p className="text-xs text-neutral-500">Configura tu nuevo negocio con subdominio dedicado</p>
+              <p className="text-xs text-neutral-500">Configura tu nuevo negocio con subdominio dedicado y WhatsApp</p>
             </div>
           </div>
           <button
@@ -131,7 +138,7 @@ export const CreateStoreModal: React.FC<Props> = ({ isOpen, onClose, onStoreCrea
         <form onSubmit={handleSubmit} className="mt-5 space-y-4">
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
-              Nombre del Negocio
+              Nombre del Negocio *
             </label>
             <input
               id="store-name-input"
@@ -146,7 +153,7 @@ export const CreateStoreModal: React.FC<Props> = ({ isOpen, onClose, onStoreCrea
 
           <div>
             <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
-              Subdominio Único del Catálogo
+              Subdominio Único del Catálogo *
             </label>
             <div className="flex rounded-xl border border-neutral-300 overflow-hidden shadow-sm focus-within:border-neutral-900 focus-within:ring-1 focus-within:ring-neutral-900">
               <span className="bg-neutral-100 px-3 py-2.5 text-xs font-medium text-neutral-500 border-r border-neutral-200 select-none">
@@ -182,9 +189,14 @@ export const CreateStoreModal: React.FC<Props> = ({ isOpen, onClose, onStoreCrea
           </div>
 
           <div>
-            <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-1">
-              WhatsApp para Pedidos
-            </label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="block text-xs font-semibold uppercase tracking-wider text-neutral-700">
+                WhatsApp para Pedidos * (Obligatorio)
+              </label>
+              <span className="text-[11px] text-emerald-600 font-medium flex items-center gap-1">
+                <Phone className="h-3 w-3" /> Clientes te comprarán aquí
+              </span>
+            </div>
             <div className="flex rounded-xl border border-neutral-300 overflow-hidden shadow-sm focus-within:border-neutral-900 focus-within:ring-1 focus-within:ring-neutral-900">
               <select
                 value={countryCode}
@@ -198,13 +210,23 @@ export const CreateStoreModal: React.FC<Props> = ({ isOpen, onClose, onStoreCrea
                 ))}
               </select>
               <input
+                id="store-phone-input"
                 type="tel"
-                placeholder="Número de celular"
+                required
+                placeholder="Ej: 5512345678 (móvil sin guiones)"
                 value={phone}
-                onChange={(e) => setPhone(e.target.value)}
+                onChange={(e) => {
+                  setPhone(e.target.value);
+                  setPhoneError(null);
+                }}
                 className="w-full px-3 py-2 text-sm text-neutral-900 outline-none"
               />
             </div>
+            {phoneError && (
+              <p className="mt-1 text-xs text-rose-600 font-medium flex items-center gap-1">
+                <AlertCircle className="h-3.5 w-3.5" /> {phoneError}
+              </p>
+            )}
           </div>
 
           <div>
@@ -230,8 +252,8 @@ export const CreateStoreModal: React.FC<Props> = ({ isOpen, onClose, onStoreCrea
             <button
               id="btn-confirm-create-store"
               type="submit"
-              disabled={creating || !name.trim() || !subdomain.trim() || subdomainAvailable === false}
-              className="inline-flex items-center gap-1.5 rounded-xl bg-neutral-900 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-neutral-800 disabled:opacity-50"
+              disabled={creating || !name.trim() || !subdomain.trim() || subdomainAvailable === false || !phone.trim()}
+              className="inline-flex items-center gap-1.5 rounded-xl bg-neutral-900 px-4 py-2 text-sm font-semibold text-white shadow hover:bg-neutral-800 disabled:opacity-50 transition"
             >
               <Sparkles className="h-4 w-4" />
               {creating ? 'Creando catálogo...' : 'Crear Catálogo'}

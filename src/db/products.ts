@@ -1,4 +1,4 @@
-import { eq, and, ilike, or, desc, inArray } from 'drizzle-orm';
+import { eq, and, desc, inArray } from 'drizzle-orm';
 import { db } from './index.ts';
 import { products, productImages, productFeatures, featureValues, features, reviews } from './schema.ts';
 
@@ -21,12 +21,16 @@ export async function getStoreProducts(
   }
 ) {
   try {
-    let query = db.select().from(products).where(eq(products.storeId, storeId));
-    let allStoreProducts = await query;
-
+    const conditions = [eq(products.storeId, storeId)];
     if (options?.onlyActive) {
-      allStoreProducts = allStoreProducts.filter((p) => p.isActive);
+      conditions.push(eq(products.isActive, true));
     }
+
+    let allStoreProducts = await db
+      .select()
+      .from(products)
+      .where(and(...conditions))
+      .orderBy(products.sortOrder, desc(products.createdAt));
 
     if (options?.search && options.search.trim()) {
       const s = options.search.toLowerCase().trim();
@@ -42,29 +46,36 @@ export async function getStoreProducts(
 
     const productIds = allStoreProducts.map((p) => p.id);
 
-    // Fetch images
-    const allImages = await db.select().from(productImages);
-    const relevantImages = allImages.filter((img) => productIds.includes(img.productId));
+    // Fetch images ONLY for products in this store
+    const relevantImages = await db
+      .select()
+      .from(productImages)
+      .where(inArray(productImages.productId, productIds))
+      .orderBy(productImages.sortOrder);
 
-    // Fetch assigned feature values
-    const allPFeatures = await db.select().from(productFeatures);
-    const relevantPFeatures = allPFeatures.filter((pf) => productIds.includes(pf.productId));
+    // Fetch assigned feature values ONLY for products in this store
+    const relevantPFeatures = await db
+      .select()
+      .from(productFeatures)
+      .where(inArray(productFeatures.productId, productIds));
 
-    const fvIds = relevantPFeatures.map((pf) => pf.featureValueId);
+    const fvIds = Array.from(new Set(relevantPFeatures.map((pf) => pf.featureValueId)));
     let fvMap = new Map<number, { id: number; featureId: number; value: string; featureName?: string }>();
 
     if (fvIds.length > 0) {
-      const allFvs = await db.select().from(featureValues);
+      const allFvs = await db
+        .select()
+        .from(featureValues)
+        .where(inArray(featureValues.id, fvIds));
+
       const allFeats = await db.select().from(features).where(eq(features.storeId, storeId));
       const featMap = new Map(allFeats.map((f) => [f.id, f.name]));
 
       for (const fv of allFvs) {
-        if (fvIds.includes(fv.id)) {
-          fvMap.set(fv.id, {
-            ...fv,
-            featureName: featMap.get(fv.featureId),
-          });
-        }
+        fvMap.set(fv.id, {
+          ...fv,
+          featureName: featMap.get(fv.featureId),
+        });
       }
     }
 
@@ -110,29 +121,30 @@ export async function getProductById(id: number) {
     const images = await db
       .select()
       .from(productImages)
-      .where(eq(productImages.productId, id));
-    images.sort((a, b) => a.sortOrder - b.sortOrder);
+      .where(eq(productImages.productId, id))
+      .orderBy(productImages.sortOrder);
 
     const pFeatures = await db
       .select()
       .from(productFeatures)
       .where(eq(productFeatures.productId, id));
 
-    const fvIds = pFeatures.map((pf) => pf.featureValueId);
+    const fvIds = Array.from(new Set(pFeatures.map((pf) => pf.featureValueId)));
     let assignedValues: { id: number; featureId: number; value: string; featureName?: string }[] = [];
 
     if (fvIds.length > 0) {
-      const allFvs = await db.select().from(featureValues);
+      const allFvs = await db
+        .select()
+        .from(featureValues)
+        .where(inArray(featureValues.id, fvIds));
       const allFeats = await db.select().from(features).where(eq(features.storeId, prod.storeId));
       const featMap = new Map(allFeats.map((f) => [f.id, f.name]));
 
       for (const fv of allFvs) {
-        if (fvIds.includes(fv.id)) {
-          assignedValues.push({
-            ...fv,
-            featureName: featMap.get(fv.featureId),
-          });
-        }
+        assignedValues.push({
+          ...fv,
+          featureName: featMap.get(fv.featureId),
+        });
       }
     }
 

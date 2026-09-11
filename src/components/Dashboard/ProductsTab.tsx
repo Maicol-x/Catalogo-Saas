@@ -13,6 +13,7 @@ import {
   X,
   AlertTriangle,
   Sparkles,
+  Upload,
 } from 'lucide-react';
 import { Product, Store, Feature } from '../../types.ts';
 import { useAuth } from '../../context/AuthContext.tsx';
@@ -54,6 +55,7 @@ export const ProductsTab: React.FC<Props> = ({ store }) => {
   const [newImageUrl, setNewImageUrl] = useState('');
   const [selectedFeatureValueIds, setSelectedFeatureValueIds] = useState<number[]>([]);
   const [submitting, setSubmitting] = useState(false);
+  const [uploadingImage, setUploadingImage] = useState(false);
 
   const fetchProductsAndFeatures = async () => {
     setLoading(true);
@@ -140,9 +142,53 @@ export const ProductsTab: React.FC<Props> = ({ store }) => {
       if (res.ok) {
         setProducts((prev) => prev.filter((p) => p.id !== id));
         setDeleteConfirmId(null);
+      } else {
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'No se pudo eliminar el producto.');
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('Error deleting product:', e);
+      alert('Error de conexión al eliminar el producto: ' + (e.message || ''));
+    }
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 5 * 1024 * 1024) {
+      alert('La imagen no puede exceder 5MB.');
+      return;
+    }
+
+    setUploadingImage(true);
+    try {
+      const reader = new FileReader();
+      reader.onload = async () => {
+        const base64Data = reader.result as string;
+        const res = await fetch('/api/upload', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
+          },
+          body: JSON.stringify({ fileData: base64Data, fileName: file.name }),
+        });
+
+        if (res.ok) {
+          const data = await res.json();
+          handleAddImage(data.url);
+        } else {
+          const err = await res.json().catch(() => ({}));
+          alert(err.error || 'Error al subir la imagen.');
+        }
+        setUploadingImage(false);
+      };
+      reader.readAsDataURL(file);
+    } catch (err: any) {
+      console.error('Upload failed:', err);
+      alert('Error al procesar el archivo.');
+      setUploadingImage(false);
     }
   };
 
@@ -207,6 +253,9 @@ export const ProductsTab: React.FC<Props> = ({ store }) => {
           const updated = await res.json();
           setProducts((prev) => prev.map((p) => (p.id === updated.id ? updated : p)));
           setIsModalOpen(false);
+        } else {
+          const err = await res.json().catch(() => ({}));
+          alert(err.error || 'Error al actualizar el producto.');
         }
       } else {
         const res = await fetch(`/api/stores/${store.id}/products`, {
@@ -218,10 +267,14 @@ export const ProductsTab: React.FC<Props> = ({ store }) => {
           const created = await res.json();
           setProducts((prev) => [created, ...prev]);
           setIsModalOpen(false);
+        } else {
+          const err = await res.json().catch(() => ({}));
+          alert(err.error || 'Error al guardar el nuevo producto.');
         }
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error('Save product failed:', err);
+      alert('Error de conexión al guardar: ' + (err.message || ''));
     } finally {
       setSubmitting(false);
     }
@@ -523,23 +576,37 @@ export const ProductsTab: React.FC<Props> = ({ store }) => {
                   </span>
                 </div>
 
-                {/* Input for new image */}
-                <div className="flex gap-2 mb-3">
-                  <input
-                    type="url"
-                    placeholder="URL de la imagen (ej: https://images.unsplash.com/...)"
-                    value={newImageUrl}
-                    onChange={(e) => setNewImageUrl(e.target.value)}
-                    className="flex-1 rounded-xl border border-neutral-300 px-3 py-1.5 text-xs text-neutral-900 outline-none focus:border-neutral-900"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => handleAddImage(newImageUrl)}
-                    disabled={!newImageUrl.trim()}
-                    className="rounded-xl bg-neutral-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-neutral-700 disabled:opacity-40 transition"
-                  >
-                    Agregar URL
-                  </button>
+                {/* Input for new image or file upload */}
+                <div className="flex flex-col sm:flex-row gap-2 mb-3">
+                  <div className="flex-1 flex gap-2">
+                    <input
+                      type="url"
+                      placeholder="URL de la imagen (ej: https://images.unsplash.com/...)"
+                      value={newImageUrl}
+                      onChange={(e) => setNewImageUrl(e.target.value)}
+                      className="flex-1 rounded-xl border border-neutral-300 px-3 py-1.5 text-xs text-neutral-900 outline-none focus:border-neutral-900"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleAddImage(newImageUrl)}
+                      disabled={!newImageUrl.trim()}
+                      className="rounded-xl bg-neutral-800 px-3 py-1.5 text-xs font-semibold text-white hover:bg-neutral-700 disabled:opacity-40 transition"
+                    >
+                      Agregar URL
+                    </button>
+                  </div>
+
+                  <label className="cursor-pointer inline-flex items-center justify-center gap-1.5 rounded-xl border border-neutral-300 bg-neutral-50 px-3 py-1.5 text-xs font-semibold text-neutral-700 hover:bg-neutral-100 transition shadow-2xs">
+                    <Upload className="h-3.5 w-3.5 text-neutral-500" />
+                    <span>{uploadingImage ? 'Subiendo...' : 'Subir archivo'}</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleFileUpload}
+                      disabled={uploadingImage}
+                      className="hidden"
+                    />
+                  </label>
                 </div>
 
                 {/* Quick Unsplash presets for ease of testing */}

@@ -12,7 +12,7 @@ import {
 } from 'lucide-react';
 import { Store } from '../../types.ts';
 import { useAuth } from '../../context/AuthContext.tsx';
-import { COUNTRY_CODES } from '../../lib/countryCodes.ts';
+import { COUNTRY_CODES, isValidPhoneNumber } from '../../lib/countryCodes.ts';
 
 interface Props {
   store: Store;
@@ -123,6 +123,11 @@ export const BrandingTab: React.FC<Props> = ({ store, onStoreUpdated }) => {
     e.preventDefault();
     if (subdomainAvailable === false) return;
 
+    if (phone.trim() && !isValidPhoneNumber(phone)) {
+      alert('El número de WhatsApp ingresado no es válido. Debe contener al menos 7 dígitos.');
+      return;
+    }
+
     setSaving(true);
     setSuccessNotice(false);
 
@@ -159,11 +164,12 @@ export const BrandingTab: React.FC<Props> = ({ store, onStoreUpdated }) => {
         setSuccessNotice(true);
         setTimeout(() => setSuccessNotice(false), 3500);
       } else {
-        const err = await res.json();
-        alert(err.error || 'Error al actualizar');
+        const err = await res.json().catch(() => ({}));
+        alert(err.error || 'Error al actualizar la configuración');
       }
-    } catch (e) {
+    } catch (e: any) {
       console.error('Save branding error:', e);
+      alert('Error de conexión al guardar cambios: ' + (e.message || ''));
     } finally {
       setSaving(false);
     }

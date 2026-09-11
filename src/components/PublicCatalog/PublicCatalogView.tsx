@@ -14,7 +14,7 @@ import {
   Copy,
 } from 'lucide-react';
 import { Store, Product, Feature } from '../../types.ts';
-import { generateWhatsAppLink } from '../../lib/countryCodes.ts';
+import { generateWhatsAppLink, getStorePublicUrl } from '../../lib/countryCodes.ts';
 import { ProductDetailModal } from './ProductDetailModal.tsx';
 import QRCode from 'qrcode';
 
@@ -37,7 +37,8 @@ export const PublicCatalogView: React.FC<Props> = ({ store }) => {
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string>('');
   const [copiedLink, setCopiedLink] = useState(false);
 
-  const catalogUrl = `https://${store.subdomain}.catalogo.app`;
+  const { workingUrl, customDomainUrl } = getStorePublicUrl(store.subdomain);
+  const catalogUrl = customDomainUrl;
 
   const fetchCatalog = async () => {
     setLoading(true);
@@ -60,7 +61,7 @@ export const PublicCatalogView: React.FC<Props> = ({ store }) => {
   }, [store.subdomain]);
 
   useEffect(() => {
-    QRCode.toDataURL(catalogUrl, {
+    QRCode.toDataURL(workingUrl, {
       width: 400,
       margin: 2,
       color: {
@@ -68,7 +69,7 @@ export const PublicCatalogView: React.FC<Props> = ({ store }) => {
         light: '#ffffff',
       },
     }).then(setQrCodeDataUrl);
-  }, [catalogUrl, store.primaryColor]);
+  }, [workingUrl, store.primaryColor]);
 
   // Client-side instant filtering
   const filteredProducts = useMemo(() => {
@@ -385,18 +386,35 @@ export const PublicCatalogView: React.FC<Props> = ({ store }) => {
                         </span>
                       </div>
 
-                      <a
-                        href={prodWhatsAppUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        title="Comprar directo por WhatsApp"
-                        className="inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold text-white shadow-xs transition hover:scale-105 active:scale-95 shrink-0"
-                        style={{ backgroundColor: store.primaryColor || '#10b981' }}
-                      >
-                        <Phone className="h-3.5 w-3.5" />
-                        <span>Pedir</span>
-                      </a>
+                      {prodWhatsAppUrl ? (
+                        <a
+                          href={prodWhatsAppUrl}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          title="Comprar directo por WhatsApp"
+                          className="inline-flex items-center gap-1.5 rounded-xl px-3.5 py-2 text-xs font-bold text-white shadow-xs transition hover:scale-105 active:scale-95 shrink-0"
+                          style={{ backgroundColor: store.primaryColor || '#10b981' }}
+                        >
+                          <Phone className="h-3.5 w-3.5" />
+                          <span>Pedir</span>
+                        </a>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            alert(
+                              'Este comercio aún no ha configurado su número de WhatsApp para recibir pedidos.'
+                            );
+                          }}
+                          title="WhatsApp no configurado"
+                          className="inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-[11px] font-medium text-neutral-400 bg-neutral-100 hover:bg-neutral-200 transition shrink-0"
+                        >
+                          <Phone className="h-3.5 w-3.5" />
+                          <span>Sin WhatsApp</span>
+                        </button>
+                      )}
                     </div>
                   </div>
                 );

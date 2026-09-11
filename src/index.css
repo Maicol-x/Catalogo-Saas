@@ -1,1 +1,38 @@
 @import "tailwindcss";
+
+@media print {
+  /* Hide all dashboard UI, navbars, buttons and modals */
+  body * {
+    visibility: hidden;
+  }
+
+  /* Show ONLY the printable poster */
+  #printable-poster,
+  #printable-poster * {
+    visibility: visible;
+  }
+
+  #printable-poster {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100% !important;
+    max-width: 100% !important;
+    margin: 0 !important;
+    padding: 3rem 2rem !important;
+    box-shadow: none !important;
+    border: 2px solid #171717 !important;
+    background: #ffffff !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    justify-content: center !important;
+    page-break-inside: avoid;
+  }
+
+  /* Hide any buttons inside poster if any */
+  #printable-poster button,
+  #printable-poster .no-print {
+    display: none !important;
+  }
+}

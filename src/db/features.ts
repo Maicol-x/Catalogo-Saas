@@ -1,4 +1,4 @@
-import { eq, and } from 'drizzle-orm';
+import { eq, and, inArray } from 'drizzle-orm';
 import { db } from './index.ts';
 import { features, featureValues, stores } from './schema.ts';
 
@@ -8,8 +8,10 @@ export async function getStoreFeaturesWithValues(storeId: number) {
     if (featureList.length === 0) return [];
 
     const featureIds = featureList.map((f) => f.id);
-    const allValues = await db.select().from(featureValues);
-    const storeValues = allValues.filter((v) => featureIds.includes(v.featureId));
+    const storeValues = await db
+      .select()
+      .from(featureValues)
+      .where(inArray(featureValues.featureId, featureIds));
 
     return featureList.map((f) => ({
       ...f,
@@ -57,8 +59,21 @@ export async function createFeature(storeId: number, name: string, initialValues
   }
 }
 
-export async function addFeatureValue(featureId: number, value: string) {
+export async function addFeatureValue(featureId: number, value: string, storeId?: number) {
   try {
+    // If storeId is provided, verify this feature actually belongs to this store
+    if (storeId) {
+      const feat = await db
+        .select({ id: features.id })
+        .from(features)
+        .where(and(eq(features.id, featureId), eq(features.storeId, storeId)))
+        .limit(1);
+
+      if (!feat[0]) {
+        throw new Error('Unauthorized: Feature does not belong to this store');
+      }
+    }
+
     const res = await db
       .insert(featureValues)
       .values({
@@ -94,8 +109,22 @@ export async function deleteFeature(featureId: number, storeId: number) {
   }
 }
 
-export async function deleteFeatureValue(featureValueId: number) {
+export async function deleteFeatureValue(featureValueId: number, storeId?: number) {
   try {
+    // If storeId is provided, verify this value belongs to a feature of this store
+    if (storeId) {
+      const valRecord = await db
+        .select({ valId: featureValues.id })
+        .from(featureValues)
+        .innerJoin(features, eq(featureValues.featureId, features.id))
+        .where(and(eq(featureValues.id, featureValueId), eq(features.storeId, storeId)))
+        .limit(1);
+
+      if (!valRecord[0]) {
+        throw new Error('Unauthorized: Feature value does not belong to this store');
+      }
+    }
+
     await db.delete(featureValues).where(eq(featureValues.id, featureValueId));
     return { success: true };
   } catch (error) {

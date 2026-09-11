@@ -41,9 +41,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (res.ok) {
         const data = await res.json();
         setDbUser(data.user);
-        setStores(data.stores || []);
-        if (data.stores && data.stores.length > 0) {
-          setActiveStore((prev) => prev || data.stores[0]);
+        const userStores: Store[] = data.stores || [];
+        setStores(userStores);
+        if (userStores.length > 0) {
+          setActiveStore((prev) => {
+            if (prev && userStores.some((s) => s.id === prev.id)) {
+              return userStores.find((s) => s.id === prev.id) || userStores[0];
+            }
+            return userStores[0];
+          });
         }
       }
     } catch (err) {
@@ -56,6 +62,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setFirebaseUser(user);
       if (user) {
         try {
+          localStorage.removeItem('auth_demo_token');
           const token = await user.getIdToken();
           setIdToken(token);
           await syncWithBackend(token);
@@ -63,9 +70,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           console.error('Error retrieving ID token:', e);
         }
       } else {
-        setIdToken(null);
-        setDbUser(null);
-        setStores([]);
+        // Check if user previously used Demo Mode
+        const savedDemoToken = localStorage.getItem('auth_demo_token');
+        if (savedDemoToken) {
+          setIdToken(savedDemoToken);
+          await syncWithBackend(savedDemoToken);
+        } else {
+          setIdToken(null);
+          setDbUser(null);
+          setStores([]);
+        }
       }
       setLoading(false);
     });
@@ -78,6 +92,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLoading(true);
       const result = await signInWithPopup(auth, googleAuthProvider);
       const token = await result.user.getIdToken();
+      localStorage.removeItem('auth_demo_token');
       setIdToken(token);
       await syncWithBackend(token);
     } catch (error: any) {
@@ -88,21 +103,25 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Demo fallback merchant for instant evaluation
+  // Demo fallback merchant for instant evaluation with full write permissions
   const loginAsDemoMerchant = async (subdomain = 'elmolino') => {
     setLoading(true);
     try {
       const res = await fetch('/api/public/all-stores');
-      const all = await res.json();
+      const all: Store[] = await res.json();
       const targetStore = all.find((s: Store) => s.subdomain === subdomain) || all[0];
 
       if (targetStore) {
+        const demoToken = `demo_token_${targetStore.userUid}`;
+        setIdToken(demoToken);
+        localStorage.setItem('auth_demo_token', demoToken);
+
         const mockDbUser: User = {
           id: targetStore.userId,
           uid: targetStore.userUid,
-          email: 'comercio.demo@catalogo.app',
-          name: 'Comerciante Demo',
-          phoneNumber: targetStore.phoneNumber || '5512345678',
+          email: 'contacto@elmolino.com',
+          name: 'Carlos Mendoza (Demo)',
+          phoneNumber: targetStore.phoneNumber || '5215512345678',
           countryCode: targetStore.countryCode || '+52',
           createdAt: targetStore.createdAt,
         };
@@ -120,6 +139,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const logout = async () => {
     try {
+      localStorage.removeItem('auth_demo_token');
       if (firebaseUser) {
         await signOut(auth);
       }
@@ -136,27 +156,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const refreshUserData = async () => {
     if (idToken) {
       await syncWithBackend(idToken);
-    } else if (dbUser) {
-      // Refresh for demo session
-      try {
-        const res = await fetch('/api/public/all-stores');
-        const all: Store[] = await res.json();
-        const userStores = all.filter((s) => s.userUid === dbUser.uid);
-        setStores(userStores);
-        if (activeStore) {
-          const current = userStores.find((s) => s.id === activeStore.id);
-          if (current) setActiveStore(current);
-        }
-      } catch (e) {
-        console.error('Refresh error:', e);
-      }
     }
   };
 
   const updateUserPhone = async (phoneNumber: string, countryCode: string) => {
-    if (!dbUser) return;
+    if (!idToken) return;
 
-    if (idToken) {
+    try {
       const res = await fetch('/api/user/profile', {
         method: 'PATCH',
         headers: {
@@ -168,13 +174,28 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       if (res.ok) {
         const updated = await res.json();
         setDbUser(updated);
+        // Also update phone on current active store if it lacked one
+        if (activeStore && !activeStore.phoneNumber) {
+          const storeRes = await fetch(`/api/stores/${activeStore.id}`, {
+            method: 'PATCH',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${idToken}`,
+            },
+            body: JSON.stringify({ phoneNumber, countryCode }),
+          });
+          if (storeRes.ok) {
+            const updatedStore = await storeRes.json();
+            setActiveStore(updatedStore);
+          }
+        }
+      } else {
+        const err = await res.json();
+        throw new Error(err.error || 'Error al guardar teléfono');
       }
-    } else {
-      // local demo update
-      setDbUser((prev) => (prev ? { ...prev, phoneNumber, countryCode } : null));
-      if (activeStore) {
-        setActiveStore((prev) => (prev ? { ...prev, phoneNumber, countryCode } : null));
-      }
+    } catch (e) {
+      console.error('Update phone error:', e);
+      throw e;
     }
   };
 

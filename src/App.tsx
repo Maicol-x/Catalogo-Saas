@@ -6,49 +6,67 @@ import { PublicCatalogView } from './components/PublicCatalog/PublicCatalogView.
 import { PhoneOnboardingModal } from './components/PhoneOnboardingModal.tsx';
 import { CreateStoreModal } from './components/CreateStoreModal.tsx';
 import { Store } from './types.ts';
-import { Store as StoreIcon, Plus, Sparkles, Phone, ExternalLink } from 'lucide-react';
+import { Store as StoreIcon, Plus, AlertCircle, Sparkles } from 'lucide-react';
 
 const AppContent: React.FC = () => {
-  const { dbUser, activeStore, setActiveStore, stores, refreshUserData } = useAuth();
+  const { dbUser, firebaseUser, activeStore, setActiveStore, stores, refreshUserData } = useAuth();
   const [allStores, setAllStores] = useState<Store[]>([]);
   const [currentView, setCurrentView] = useState<'dashboard' | 'catalog'>('dashboard');
   const [dashboardTab, setDashboardTab] = useState<TabType>('products');
   const [isCreateStoreOpen, setIsCreateStoreOpen] = useState(false);
-  const [loadingStores, setLoadingStores] = useState(true);
+  const [loadingInitial, setLoadingInitial] = useState(true);
+  const [isSubdomainRoute, setIsSubdomainRoute] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  // Fetch all public stores for multi-tenant switching
-  const fetchStores = async () => {
-    try {
-      const res = await fetch('/api/public/all-stores');
-      if (res.ok) {
-        const list: Store[] = await res.json();
-        setAllStores(list);
-        if (!activeStore && list.length > 0) {
-          setActiveStore(list[0]);
-        }
-      }
-    } catch (err) {
-      console.error('Failed to load stores:', err);
-    } finally {
-      setLoadingStores(false);
-    }
-  };
-
+  // 1. Check Subdomain / Tenant Resolution first
   useEffect(() => {
-    fetchStores();
+    const resolveTenantAndStores = async () => {
+      try {
+        const search = window.location.search;
+        const tenantRes = await fetch(`/api/resolve-tenant${search}`);
+        if (tenantRes.ok) {
+          const tenantData = await tenantRes.json();
+          if (tenantData.isSubdomainRoute && tenantData.store) {
+            // Visitor accessed via unique subdomain or query ?subdomain=...
+            setIsSubdomainRoute(true);
+            setActiveStore(tenantData.store);
+            setCurrentView('catalog');
+            document.title = `${tenantData.store.name} — Catálogo Digital`;
+            setLoadingInitial(false);
+            return;
+          }
+        }
+
+        // Standard SaaS dashboard flow: fetch public stores list for switcher/showcase
+        const res = await fetch('/api/public/all-stores');
+        if (res.ok) {
+          const list: Store[] = await res.json();
+          setAllStores(list);
+          if (!activeStore && list.length > 0) {
+            setActiveStore(list[0]);
+          }
+        }
+      } catch (err: any) {
+        console.error('Failed to initialize stores:', err);
+        setErrorMessage('No pudimos conectar con el servidor para cargar las tiendas.');
+      } finally {
+        setLoadingInitial(false);
+      }
+    };
+
+    resolveTenantAndStores();
   }, []);
 
-  // Synchronize active store if allStores updates
+  // Synchronize store when allStores or stores change
   useEffect(() => {
-    if (activeStore) {
-      const fresh = allStores.find((s) => s.id === activeStore.id);
+    const source = (dbUser || firebaseUser) && stores.length > 0 ? stores : allStores;
+    if (activeStore && source.length > 0) {
+      const fresh = source.find((s) => s.id === activeStore.id);
       if (fresh && JSON.stringify(fresh) !== JSON.stringify(activeStore)) {
         setActiveStore(fresh);
       }
-    } else if (allStores.length > 0) {
-      setActiveStore(allStores[0]);
     }
-  }, [allStores]);
+  }, [allStores, stores, dbUser, firebaseUser]);
 
   const handleStoreCreated = (newStore: Store) => {
     setAllStores((prev) => [newStore, ...prev]);
@@ -62,20 +80,57 @@ const AppContent: React.FC = () => {
     refreshUserData();
   };
 
+  // Determine available stores based on user authentication (Data Isolation)
+  const availableStoresForNavbar =
+    (dbUser || firebaseUser) && stores.length > 0 ? stores : allStores;
+
   return (
     <div className="min-h-screen flex flex-col bg-neutral-50 text-neutral-900 selection:bg-neutral-900 selection:text-white">
+      {/* Optional Global Error Banner */}
+      {errorMessage && (
+        <div className="bg-rose-50 border-b border-rose-200 text-rose-800 px-4 py-2 text-xs flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <AlertCircle className="h-4 w-4 text-rose-600" />
+            <span>{errorMessage}</span>
+          </div>
+          <button
+            onClick={() => setErrorMessage(null)}
+            className="text-xs font-semibold text-rose-700 hover:underline"
+          >
+            Cerrar
+          </button>
+        </div>
+      )}
+
       {/* Top Navigation */}
       <Navbar
         currentView={currentView}
         onSelectView={setCurrentView}
         onOpenCreateStore={() => setIsCreateStoreOpen(true)}
-        availableStores={allStores}
+        availableStores={availableStoresForNavbar}
         onSelectStore={(s) => setActiveStore(s)}
       />
 
+      {/* Subdomain Visitor Notification bar if entered through public link */}
+      {isSubdomainRoute && activeStore && currentView === 'catalog' && (
+        <div className="bg-neutral-900 text-white px-4 py-1.5 text-xs text-center border-b border-neutral-800 flex items-center justify-center gap-2">
+          <Sparkles className="h-3 w-3 text-amber-400" />
+          <span>Estás viendo el catálogo oficial de <strong>{activeStore.name}</strong></span>
+          <button
+            onClick={() => {
+              setIsSubdomainRoute(false);
+              setCurrentView('dashboard');
+            }}
+            className="ml-2 underline text-neutral-300 hover:text-white"
+          >
+            Ir al panel de administración
+          </button>
+        </div>
+      )}
+
       {/* Main Viewport */}
       <div className="flex-1">
-        {loadingStores ? (
+        {loadingInitial ? (
           <div className="min-h-[60vh] flex flex-col items-center justify-center">
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-neutral-900 border-t-transparent" />
             <p className="mt-3 text-xs text-neutral-500 font-medium">Iniciando plataforma de catálogos...</p>

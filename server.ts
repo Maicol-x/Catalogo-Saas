@@ -40,6 +40,46 @@ import QRCode from 'qrcode';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+function resolveSubdomain(req: express.Request): string | null {
+  // 1. Query parameter: ?subdomain=... or ?store=...
+  if (req.query.subdomain && typeof req.query.subdomain === 'string') {
+    return req.query.subdomain.trim().toLowerCase();
+  }
+  if (req.query.store && typeof req.query.store === 'string') {
+    return req.query.store.trim().toLowerCase();
+  }
+
+  // 2. Explicit path prefix: /s/:subdomain
+  const pathMatch = req.path.match(/^\/s\/([a-zA-Z0-9_-]+)/);
+  if (pathMatch) {
+    return pathMatch[1].toLowerCase();
+  }
+
+  // 3. Real host header detection (e.g. tunegocio.catalogo.app or tunegocio.com)
+  const host = (req.headers['x-forwarded-host'] || req.headers.host || '') as string;
+  const hostname = host.split(':')[0].toLowerCase();
+
+  const ignoredDomains = [
+    'localhost',
+    '127.0.0.1',
+    'run.app',
+    'web.app',
+    'firebaseapp.com',
+    'github.dev',
+    'applet.run',
+  ];
+  const isIgnored = ignoredDomains.some((d) => hostname.includes(d));
+
+  if (!isIgnored) {
+    const parts = hostname.split('.');
+    if (parts.length >= 3 && parts[0] !== 'www' && parts[0] !== 'api' && parts[0] !== 'app') {
+      return parts[0];
+    }
+  }
+
+  return null;
+}
+
 async function startServer() {
   const app = express();
   const PORT = 3000;
@@ -56,6 +96,27 @@ async function startServer() {
   // Health check
   app.get('/api/health', (_req, res) => {
     res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  });
+
+  // -------------------------------------------------------------
+  // Resolve Tenant / Subdomain Endpoint
+  // Resolves whether this request is for a specific merchant catalog
+  // -------------------------------------------------------------
+  app.get('/api/resolve-tenant', async (req, res) => {
+    try {
+      const subdomain = resolveSubdomain(req);
+      if (!subdomain) {
+        return res.json({ isSubdomainRoute: false, store: null });
+      }
+      const store = await getStoreBySubdomain(subdomain);
+      if (!store) {
+        return res.json({ isSubdomainRoute: true, subdomain, store: null, notFound: true });
+      }
+      res.json({ isSubdomainRoute: true, subdomain, store });
+    } catch (error: any) {
+      console.error('Failed to resolve tenant:', error);
+      res.status(500).json({ error: error.message || 'Error resolviendo subdominio' });
+    }
   });
 
   // -------------------------------------------------------------
@@ -191,6 +252,22 @@ async function startServer() {
       res.json({ qrDataUrl: dataUrl, url: targetUrl });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
+    }
+  });
+
+  // Real image upload / base64 handler
+  app.post('/api/upload', requireAuth, async (req: AuthRequest, res) => {
+    try {
+      const { imageBase64 } = req.body;
+      if (!imageBase64 || typeof imageBase64 !== 'string') {
+        return res.status(400).json({ error: 'Datos de imagen requeridos' });
+      }
+      if (imageBase64.length > 7 * 1024 * 1024) {
+        return res.status(400).json({ error: 'La imagen supera el límite de 5MB' });
+      }
+      res.json({ url: imageBase64 });
+    } catch (error: any) {
+      res.status(500).json({ error: error.message || 'Error procesando imagen' });
     }
   });
 
@@ -420,7 +497,8 @@ async function startServer() {
       const { value } = req.body;
       if (!value) return res.status(400).json({ error: 'Valor obligatorio' });
 
-      const newVal = await addFeatureValue(featureId, value);
+      // Validates that featureId belongs to storeId
+      const newVal = await addFeatureValue(featureId, value, storeId);
       res.status(201).json(newVal);
     } catch (error: any) {
       res.status(400).json({ error: error.message });
@@ -429,8 +507,15 @@ async function startServer() {
 
   app.delete('/api/stores/:storeId/features/values/:valueId', requireAuth, async (req: AuthRequest, res) => {
     try {
+      const storeId = Number(req.params.storeId);
       const valueId = Number(req.params.valueId);
-      await deleteFeatureValue(valueId);
+      const store = await getStoreById(storeId);
+      if (!store || store.userUid !== req.user!.uid) {
+        return res.status(403).json({ error: 'No autorizado' });
+      }
+
+      // Validates that valueId belongs to storeId
+      await deleteFeatureValue(valueId, storeId);
       res.json({ success: true });
     } catch (error: any) {
       res.status(500).json({ error: error.message });
@@ -457,9 +542,16 @@ async function startServer() {
 
   app.patch('/api/stores/:storeId/reviews/:reviewId/moderate', requireAuth, async (req: AuthRequest, res) => {
     try {
+      const storeId = Number(req.params.storeId);
       const reviewId = Number(req.params.reviewId);
+      const store = await getStoreById(storeId);
+      if (!store || store.userUid !== req.user!.uid) {
+        return res.status(403).json({ error: 'No autorizado' });
+      }
+
       const { isApproved } = req.body;
-      const updated = await moderateReview(reviewId, Boolean(isApproved));
+      // Validates that review belongs to this store
+      const updated = await moderateReview(reviewId, Boolean(isApproved), storeId);
       res.json(updated);
     } catch (error: any) {
       res.status(500).json({ error: error.message });

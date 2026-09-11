@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import QRCode from 'qrcode';
 import {
   QrCode,
@@ -7,10 +7,11 @@ import {
   Copy,
   Check,
   ExternalLink,
-  Share2,
   Sparkles,
+  Smartphone,
 } from 'lucide-react';
 import { Store } from '../../types.ts';
+import { getStorePublicUrl } from '../../lib/countryCodes.ts';
 
 interface Props {
   store: Store;
@@ -20,13 +21,12 @@ export const QrTab: React.FC<Props> = ({ store }) => {
   const [qrPngUrl, setQrPngUrl] = useState<string>('');
   const [qrSvgString, setQrSvgString] = useState<string>('');
   const [copied, setCopied] = useState(false);
-  const printAreaRef = useRef<HTMLDivElement>(null);
 
-  const catalogUrl = `https://${store.subdomain}.catalogo.app`;
+  const { workingUrl, customDomainUrl } = getStorePublicUrl(store.subdomain);
 
   useEffect(() => {
-    // Generate high-resolution PNG
-    QRCode.toDataURL(catalogUrl, {
+    // Generate high-resolution PNG pointing to the working live catalog URL
+    QRCode.toDataURL(workingUrl, {
       width: 800,
       margin: 2,
       color: {
@@ -38,7 +38,7 @@ export const QrTab: React.FC<Props> = ({ store }) => {
       .catch(console.error);
 
     // Generate Vector SVG
-    QRCode.toString(catalogUrl, {
+    QRCode.toString(workingUrl, {
       type: 'svg',
       margin: 2,
       color: {
@@ -48,7 +48,7 @@ export const QrTab: React.FC<Props> = ({ store }) => {
     })
       .then(setQrSvgString)
       .catch(console.error);
-  }, [catalogUrl, store.primaryColor]);
+  }, [workingUrl, store.primaryColor]);
 
   const handleDownloadPng = () => {
     if (!qrPngUrl) return;
@@ -70,7 +70,7 @@ export const QrTab: React.FC<Props> = ({ store }) => {
   };
 
   const handleCopyLink = () => {
-    navigator.clipboard.writeText(catalogUrl);
+    navigator.clipboard.writeText(workingUrl);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
@@ -87,8 +87,8 @@ export const QrTab: React.FC<Props> = ({ store }) => {
           Código QR & Material de Difusión
         </h2>
         <p className="text-xs text-neutral-500 mt-0.5">
-          Generado automáticamente para tu subdominio{' '}
-          <span className="font-mono text-neutral-800 font-semibold">{catalogUrl}</span>
+          Generado automáticamente para tu catálogo.{' '}
+          <span className="font-mono text-neutral-800 font-semibold">{customDomainUrl}</span>
         </p>
       </div>
 
@@ -109,17 +109,23 @@ export const QrTab: React.FC<Props> = ({ store }) => {
               )}
             </div>
 
-            <div className="mt-4 flex items-center justify-center gap-2">
-              <span className="font-mono text-xs font-semibold text-neutral-800 truncate max-w-[200px]">
-                {catalogUrl}
+            <div className="mt-4 flex flex-col items-center gap-1.5">
+              <div className="flex items-center gap-2">
+                <span className="font-mono text-xs font-semibold text-neutral-800 truncate max-w-[240px]">
+                  {customDomainUrl}
+                </span>
+                <button
+                  onClick={handleCopyLink}
+                  className="rounded-lg p-1 text-neutral-500 hover:bg-neutral-100 transition"
+                  title="Copiar enlace real"
+                >
+                  {copied ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
+                </button>
+              </div>
+              <span className="text-[10px] text-emerald-600 font-medium flex items-center gap-1">
+                <Smartphone className="h-3 w-3" />
+                Listo para escanear con la cámara de cualquier celular
               </span>
-              <button
-                onClick={handleCopyLink}
-                className="rounded-lg p-1 text-neutral-500 hover:bg-neutral-100 transition"
-                title="Copiar enlace"
-              >
-                {copied ? <Check className="h-4 w-4 text-emerald-600" /> : <Copy className="h-4 w-4" />}
-              </button>
             </div>
 
             {/* Downloads */}
@@ -179,9 +185,8 @@ export const QrTab: React.FC<Props> = ({ store }) => {
 
           {/* Printable Poster Canvas */}
           <div
-            ref={printAreaRef}
-            id="printable-poster-area"
-            className="rounded-3xl border-2 border-neutral-300 bg-white p-8 sm:p-12 shadow-xl text-center max-w-md mx-auto print:border-none print:shadow-none print:m-0 print:p-8"
+            id="printable-poster"
+            className="rounded-3xl border-2 border-neutral-300 bg-white p-8 sm:p-12 shadow-xl text-center max-w-md mx-auto"
           >
             {/* Header Badge */}
             <div className="inline-flex items-center gap-1.5 rounded-full bg-neutral-100 px-3 py-1 text-xs font-semibold uppercase tracking-wider text-neutral-700 mb-4">
@@ -214,7 +219,7 @@ export const QrTab: React.FC<Props> = ({ store }) => {
                 Apunta con la cámara de tu celular
               </p>
               <p className="font-mono text-xs text-neutral-500 font-semibold">
-                {store.subdomain}.catalogo.app
+                {customDomainUrl}
               </p>
             </div>
 

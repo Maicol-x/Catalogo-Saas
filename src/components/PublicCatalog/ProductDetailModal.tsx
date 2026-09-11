@@ -332,21 +332,36 @@ export const ProductDetailModal: React.FC<Props> = ({
                 </div>
 
                 {/* WhatsApp button */}
-                <a
-                  href={whatsAppUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="w-full flex items-center justify-center gap-2.5 rounded-2xl py-3.5 px-6 text-sm font-bold text-white shadow-lg transition hover:scale-[1.01] active:scale-[0.99]"
-                  style={{ backgroundColor: store.primaryColor || '#10b981' }}
-                >
-                  <Phone className="h-4 w-4" />
-                  <span>Comprar por WhatsApp</span>
-                  {quantity > 1 && (
-                    <span className="bg-white/20 px-2 py-0.5 rounded-full text-xs">
-                      {store.currency || '$'} {(parseFloat(product.price) * quantity).toFixed(2)}
-                    </span>
-                  )}
-                </a>
+                {whatsAppUrl ? (
+                  <a
+                    href={whatsAppUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="w-full flex items-center justify-center gap-2.5 rounded-2xl py-3.5 px-6 text-sm font-bold text-white shadow-lg transition hover:scale-[1.01] active:scale-[0.99]"
+                    style={{ backgroundColor: store.primaryColor || '#10b981' }}
+                  >
+                    <Phone className="h-4 w-4" />
+                    <span>Comprar por WhatsApp</span>
+                    {quantity > 1 && (
+                      <span className="bg-white/20 px-2 py-0.5 rounded-full text-xs">
+                        {store.currency || '$'} {(parseFloat(product.price) * quantity).toFixed(2)}
+                      </span>
+                    )}
+                  </a>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      alert(
+                        'Este comercio aún no tiene configurado un número de WhatsApp válido para recibir pedidos.'
+                      )
+                    }
+                    className="w-full flex items-center justify-center gap-2 rounded-2xl py-3.5 px-6 text-sm font-bold text-neutral-400 bg-neutral-100 hover:bg-neutral-200 transition"
+                  >
+                    <Phone className="h-4 w-4" />
+                    <span>WhatsApp no configurado</span>
+                  </button>
+                )}
 
                 <p className="text-[11px] text-center text-neutral-400">
                   Te conectarás directamente con la línea oficial de <strong>{store.name}</strong> para coordinar entrega y pago.
