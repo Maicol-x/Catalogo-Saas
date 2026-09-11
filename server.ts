@@ -126,7 +126,24 @@ async function startServer() {
     try {
       const { db } = await import('./src/db/index.ts');
       const { stores } = await import('./src/db/schema.ts');
-      const all = await db.select().from(stores);
+      const all = await db
+        .select({
+          id: stores.id,
+          name: stores.name,
+          subdomain: stores.subdomain,
+          welcomeMessage: stores.welcomeMessage,
+          countryCode: stores.countryCode,
+          phoneNumber: stores.phoneNumber,
+          logoUrl: stores.logoUrl,
+          coverUrl: stores.coverUrl,
+          primaryColor: stores.primaryColor,
+          secondaryColor: stores.secondaryColor,
+          backgroundColor: stores.backgroundColor,
+          font: stores.font,
+          currency: stores.currency,
+          createdAt: stores.createdAt,
+        })
+        .from(stores);
       res.json(all);
     } catch (error: any) {
       console.error('Failed to list stores:', error);
@@ -258,7 +275,7 @@ async function startServer() {
   // Real image upload / base64 handler
   app.post('/api/upload', requireAuth, async (req: AuthRequest, res) => {
     try {
-      const { imageBase64 } = req.body;
+      const imageBase64 = req.body.imageBase64 || req.body.fileData;
       if (!imageBase64 || typeof imageBase64 !== 'string') {
         return res.status(400).json({ error: 'Datos de imagen requeridos' });
       }
@@ -314,6 +331,14 @@ async function startServer() {
   // Create store
   app.post('/api/stores', requireAuth, async (req: AuthRequest, res) => {
     try {
+      const { phoneNumber } = req.body;
+      const cleanDigits = (phoneNumber || '').replace(/[\s\-\(\)\+]/g, '');
+      if (!phoneNumber || cleanDigits.length < 7) {
+        return res.status(400).json({
+          error: 'El número de WhatsApp es obligatorio y debe tener al menos 7 dígitos válidos.',
+        });
+      }
+
       const store = await createStore(req.user!.uid, req.body);
       res.status(201).json(store);
     } catch (error: any) {
@@ -326,6 +351,15 @@ async function startServer() {
   app.patch('/api/stores/:id', requireAuth, async (req: AuthRequest, res) => {
     try {
       const storeId = Number(req.params.id);
+      if (req.body.phoneNumber !== undefined) {
+        const cleanDigits = (req.body.phoneNumber || '').replace(/[\s\-\(\)\+]/g, '');
+        if (!req.body.phoneNumber || cleanDigits.length < 7) {
+          return res.status(400).json({
+            error: 'El número de WhatsApp es obligatorio y debe tener al menos 7 dígitos válidos.',
+          });
+        }
+      }
+
       const updated = await updateStore(storeId, req.user!.uid, req.body);
       res.json(updated);
     } catch (error: any) {

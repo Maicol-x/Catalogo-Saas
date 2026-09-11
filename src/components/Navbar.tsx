@@ -30,7 +30,7 @@ export const Navbar: React.FC<Props> = ({
   availableStores,
   onSelectStore,
 }) => {
-  const { dbUser, firebaseUser, activeStore, loginWithGoogle, loginAsDemoMerchant, logout } = useAuth();
+  const { dbUser, firebaseUser, activeStore, loginWithGoogle, logout } = useAuth();
   const [storeMenuOpen, setStoreMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [copied, setCopied] = useState(false);
@@ -216,29 +216,9 @@ export const Navbar: React.FC<Props> = ({
                       <button
                         onClick={() => {
                           setUserMenuOpen(false);
-                          loginAsDemoMerchant('elmolino');
-                        }}
-                        className="w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-neutral-700 hover:bg-neutral-100 text-left"
-                      >
-                        <Sparkles className="h-3.5 w-3.5 text-amber-600" />
-                        Cargar Demo Café El Molino
-                      </button>
-                      <button
-                        onClick={() => {
-                          setUserMenuOpen(false);
-                          loginAsDemoMerchant('modaurbana');
-                        }}
-                        className="w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-neutral-700 hover:bg-neutral-100 text-left"
-                      >
-                        <Sparkles className="h-3.5 w-3.5 text-indigo-600" />
-                        Cargar Demo Moda Urbana
-                      </button>
-                      <button
-                        onClick={() => {
-                          setUserMenuOpen(false);
                           logout();
                         }}
-                        className="w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-rose-600 hover:bg-rose-50 text-left font-medium"
+                        className="w-full flex items-center gap-2 rounded-lg px-2.5 py-1.5 text-xs text-rose-600 hover:bg-rose-50 text-left font-medium cursor-pointer"
                       >
                         <LogOut className="h-3.5 w-3.5" />
                         Cerrar sesión
@@ -250,16 +230,9 @@ export const Navbar: React.FC<Props> = ({
             ) : (
               <div className="flex items-center gap-2">
                 <button
-                  id="btn-demo-login"
-                  onClick={() => loginAsDemoMerchant('elmolino')}
-                  className="rounded-xl border border-neutral-300 px-3 py-1.5 text-xs font-semibold text-neutral-700 hover:bg-neutral-50 transition"
-                >
-                  Demo Rápida
-                </button>
-                <button
                   id="btn-google-login"
                   onClick={loginWithGoogle}
-                  className="flex items-center gap-2 rounded-xl bg-neutral-900 px-3.5 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-neutral-800 transition"
+                  className="flex items-center gap-2 rounded-xl bg-neutral-900 px-3.5 py-1.5 text-xs font-semibold text-white shadow-xs hover:bg-neutral-800 transition cursor-pointer"
                 >
                   <svg className="h-3.5 w-3.5" viewBox="0 0 24 24">
                     <path

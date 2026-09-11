@@ -89,7 +89,9 @@ export const ProductDetailModal: React.FC<Props> = ({
 
       if (res.ok) {
         const created = await res.json();
-        setReviews([created, ...reviews]);
+        if (created.isApproved) {
+          setReviews((prev) => [created, ...prev]);
+        }
         setAuthorName('');
         setComment('');
         setRating(5);
@@ -383,9 +385,9 @@ export const ProductDetailModal: React.FC<Props> = ({
             <div className="rounded-2xl border border-neutral-200 bg-neutral-50/70 p-5">
               {reviewSubmitted ? (
                 <div className="text-center py-2 text-emerald-700">
-                  <p className="font-semibold text-sm">¡Muchas gracias por tu reseña!</p>
-                  <p className="text-xs text-neutral-500 mt-0.5">
-                    Tu comentario ha sido enviado y quedará publicado en este producto.
+                  <p className="font-semibold text-sm">¡Muchas gracias por tu valoración!</p>
+                  <p className="text-xs text-neutral-600 mt-0.5">
+                    Tu reseña ha sido enviada con éxito y será visible tan pronto como sea aprobada por la tienda.
                   </p>
                 </div>
               ) : (

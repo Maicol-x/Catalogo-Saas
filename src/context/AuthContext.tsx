@@ -11,7 +11,6 @@ interface AuthContextType {
   idToken: string | null;
   loading: boolean;
   loginWithGoogle: () => Promise<void>;
-  loginAsDemoMerchant: (subdomain?: string) => Promise<void>;
   logout: () => Promise<void>;
   setActiveStore: (store: Store | null) => void;
   refreshUserData: () => Promise<void>;
@@ -62,7 +61,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setFirebaseUser(user);
       if (user) {
         try {
-          localStorage.removeItem('auth_demo_token');
           const token = await user.getIdToken();
           setIdToken(token);
           await syncWithBackend(token);
@@ -70,16 +68,10 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           console.error('Error retrieving ID token:', e);
         }
       } else {
-        // Check if user previously used Demo Mode
-        const savedDemoToken = localStorage.getItem('auth_demo_token');
-        if (savedDemoToken) {
-          setIdToken(savedDemoToken);
-          await syncWithBackend(savedDemoToken);
-        } else {
-          setIdToken(null);
-          setDbUser(null);
-          setStores([]);
-        }
+        setIdToken(null);
+        setDbUser(null);
+        setStores([]);
+        setActiveStore(null);
       }
       setLoading(false);
     });
@@ -92,7 +84,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setLoading(true);
       const result = await signInWithPopup(auth, googleAuthProvider);
       const token = await result.user.getIdToken();
-      localStorage.removeItem('auth_demo_token');
       setIdToken(token);
       await syncWithBackend(token);
     } catch (error: any) {
@@ -103,43 +94,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  // Demo fallback merchant for instant evaluation with full write permissions
-  const loginAsDemoMerchant = async (subdomain = 'elmolino') => {
-    setLoading(true);
-    try {
-      const res = await fetch('/api/public/all-stores');
-      const all: Store[] = await res.json();
-      const targetStore = all.find((s: Store) => s.subdomain === subdomain) || all[0];
-
-      if (targetStore) {
-        const demoToken = `demo_token_${targetStore.userUid}`;
-        setIdToken(demoToken);
-        localStorage.setItem('auth_demo_token', demoToken);
-
-        const mockDbUser: User = {
-          id: targetStore.userId,
-          uid: targetStore.userUid,
-          email: 'contacto@elmolino.com',
-          name: 'Carlos Mendoza (Demo)',
-          phoneNumber: targetStore.phoneNumber || '5215512345678',
-          countryCode: targetStore.countryCode || '+52',
-          createdAt: targetStore.createdAt,
-        };
-        setDbUser(mockDbUser);
-        const userStores = all.filter((s: Store) => s.userUid === targetStore.userUid);
-        setStores(userStores);
-        setActiveStore(targetStore);
-      }
-    } catch (err) {
-      console.error('Error loading demo merchant:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
   const logout = async () => {
     try {
-      localStorage.removeItem('auth_demo_token');
       if (firebaseUser) {
         await signOut(auth);
       }
@@ -209,7 +165,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         idToken,
         loading,
         loginWithGoogle,
-        loginAsDemoMerchant,
         logout,
         setActiveStore,
         refreshUserData,

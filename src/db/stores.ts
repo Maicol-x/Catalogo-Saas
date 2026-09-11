@@ -77,6 +77,12 @@ export async function createStore(userUid: string, input: CreateStoreInput) {
       throw new Error(`El subdominio '${input.subdomain}' ya está en uso.`);
     }
 
+    const rawPhone = input.phoneNumber || userRes[0].phoneNumber || '';
+    const phoneDigits = rawPhone.replace(/[\s\-\(\)\+]/g, '');
+    if (!rawPhone.trim() || phoneDigits.length < 7) {
+      throw new Error('El número de WhatsApp es obligatorio y debe contener al menos 7 dígitos válidos.');
+    }
+
     const inserted = await db
       .insert(stores)
       .values({
@@ -85,7 +91,7 @@ export async function createStore(userUid: string, input: CreateStoreInput) {
         subdomain: input.subdomain.toLowerCase().trim(),
         name: input.name,
         welcomeMessage: input.welcomeMessage || '¡Te damos la bienvenida a nuestro catálogo digital! Haz tus pedidos directamente por WhatsApp.',
-        phoneNumber: input.phoneNumber || userRes[0].phoneNumber || '',
+        phoneNumber: rawPhone.trim(),
         countryCode: input.countryCode || userRes[0].countryCode || '+52',
         logoUrl: input.logoUrl || '',
         coverUrl: input.coverUrl || '',
@@ -120,6 +126,13 @@ export async function updateStore(storeId: number, userUid: string, input: Parti
       const available = await isSubdomainAvailable(input.subdomain, storeId);
       if (!available) {
         throw new Error(`El subdominio '${input.subdomain}' ya está en uso.`);
+      }
+    }
+
+    if (input.phoneNumber !== undefined) {
+      const phoneDigits = input.phoneNumber.replace(/[\s\-\(\)\+]/g, '');
+      if (!input.phoneNumber.trim() || phoneDigits.length < 7) {
+        throw new Error('El número de WhatsApp es obligatorio y debe contener al menos 7 dígitos válidos.');
       }
     }
 

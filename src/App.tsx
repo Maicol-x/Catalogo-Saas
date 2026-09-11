@@ -59,14 +59,27 @@ const AppContent: React.FC = () => {
 
   // Synchronize store when allStores or stores change
   useEffect(() => {
-    const source = (dbUser || firebaseUser) && stores.length > 0 ? stores : allStores;
-    if (activeStore && source.length > 0) {
-      const fresh = source.find((s) => s.id === activeStore.id);
-      if (fresh && JSON.stringify(fresh) !== JSON.stringify(activeStore)) {
-        setActiveStore(fresh);
+    if (isSubdomainRoute) return;
+
+    if (dbUser || firebaseUser) {
+      if (stores.length > 0) {
+        if (!activeStore || !stores.some((s) => s.id === activeStore.id)) {
+          setActiveStore(stores[0]);
+        } else {
+          const fresh = stores.find((s) => s.id === activeStore.id);
+          if (fresh && JSON.stringify(fresh) !== JSON.stringify(activeStore)) {
+            setActiveStore(fresh);
+          }
+        }
+      } else {
+        setActiveStore(null);
+      }
+    } else {
+      if (allStores.length > 0 && !activeStore) {
+        setActiveStore(allStores[0]);
       }
     }
-  }, [allStores, stores, dbUser, firebaseUser]);
+  }, [allStores, stores, dbUser, firebaseUser, isSubdomainRoute]);
 
   const handleStoreCreated = (newStore: Store) => {
     setAllStores((prev) => [newStore, ...prev]);
@@ -82,7 +95,7 @@ const AppContent: React.FC = () => {
 
   // Determine available stores based on user authentication (Data Isolation)
   const availableStoresForNavbar =
-    (dbUser || firebaseUser) && stores.length > 0 ? stores : allStores;
+    (dbUser || firebaseUser) ? stores : allStores;
 
   return (
     <div className="min-h-screen flex flex-col bg-neutral-50 text-neutral-900 selection:bg-neutral-900 selection:text-white">

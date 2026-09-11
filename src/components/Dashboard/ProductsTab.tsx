@@ -172,7 +172,11 @@ export const ProductsTab: React.FC<Props> = ({ store }) => {
             'Content-Type': 'application/json',
             ...(idToken ? { Authorization: `Bearer ${idToken}` } : {}),
           },
-          body: JSON.stringify({ fileData: base64Data, fileName: file.name }),
+          body: JSON.stringify({
+            imageBase64: base64Data,
+            fileData: base64Data,
+            fileName: file.name,
+          }),
         });
 
         if (res.ok) {

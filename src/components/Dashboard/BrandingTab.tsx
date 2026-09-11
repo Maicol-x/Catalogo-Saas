@@ -123,8 +123,8 @@ export const BrandingTab: React.FC<Props> = ({ store, onStoreUpdated }) => {
     e.preventDefault();
     if (subdomainAvailable === false) return;
 
-    if (phone.trim() && !isValidPhoneNumber(phone)) {
-      alert('El número de WhatsApp ingresado no es válido. Debe contener al menos 7 dígitos.');
+    if (!phone.trim() || !isValidPhoneNumber(phone)) {
+      alert('El número de WhatsApp es obligatorio y debe contener al menos 7 dígitos válidos para poder recibir pedidos de tus clientes.');
       return;
     }
 
@@ -303,7 +303,7 @@ export const BrandingTab: React.FC<Props> = ({ store, onStoreUpdated }) => {
             </h3>
             <div>
               <label className="block text-xs font-medium text-neutral-700 mb-1">
-                Línea directa para el botón de compra
+                Línea directa para el botón de compra <span className="text-rose-500 font-semibold">(Obligatorio)</span>
               </label>
               <div className="flex rounded-xl border border-neutral-300 overflow-hidden shadow-xs focus-within:border-neutral-900 focus-within:ring-1 focus-within:ring-neutral-900">
                 <select
@@ -319,6 +319,7 @@ export const BrandingTab: React.FC<Props> = ({ store, onStoreUpdated }) => {
                 </select>
                 <input
                   type="tel"
+                  required
                   placeholder="Ej: 55 1234 5678"
                   value={phone}
                   onChange={(e) => setPhone(e.target.value)}
