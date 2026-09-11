@@ -1,0 +1,6 @@
+{
+  "name": "Catálogo Digital SaaS",
+  "description": "Plataforma multi-tenant para crear, personalizar y compartir catálogos de productos con subdominios dinámicos, pedidos por WhatsApp y códigos QR.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
